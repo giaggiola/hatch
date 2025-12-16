@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 255, 245, 251;
+  --background-end-rgb: 255, 255, 255;
+
+  /* Light mode colors */
+  --bg-primary: 255, 255, 255;
+  --bg-secondary: 249, 250, 251;
+  --bg-tertiary: 243, 244, 246;
+  --text-primary: 17, 24, 39;
+  --text-secondary: 107, 114, 128;
+  --text-muted: 156, 163, 175;
+  --border-color: 229, 231, 235;
+  --card-bg: 255, 255, 255;
+}
+
+.dark {
+  --foreground-rgb: 255, 255, 255;
+  --background-start-rgb: 17, 24, 39;
+  --background-end-rgb: 31, 41, 55;
+
+  /* Dark mode colors */
+  --bg-primary: 17, 24, 39;
+  --bg-secondary: 31, 41, 55;
+  --bg-tertiary: 55, 65, 81;
+  --text-primary: 255, 255, 255;
+  --text-secondary: 156, 163, 175;
+  --text-muted: 107, 114, 128;
+  --border-color: 55, 65, 81;
+  --card-bg: 31, 41, 55;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--background-start-rgb)),
+    rgb(var(--background-end-rgb))
+  );
+  min-height: 100vh;
+}
+
+/* Prevent text selection during swipe */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Safe area for mobile */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Dark mode utility classes */
+.bg-theme-primary {
+  background-color: rgb(var(--bg-primary));
+}
+
+.bg-theme-secondary {
+  background-color: rgb(var(--bg-secondary));
+}
+
+.bg-theme-tertiary {
+  background-color: rgb(var(--bg-tertiary));
+}
+
+.bg-theme-card {
+  background-color: rgb(var(--card-bg));
+}
+
+.text-theme-primary {
+  color: rgb(var(--text-primary));
+}
+
+.text-theme-secondary {
+  color: rgb(var(--text-secondary));
+}
+
+.text-theme-muted {
+  color: rgb(var(--text-muted));
+}
+
+.border-theme {
+  border-color: rgb(var(--border-color));
+}

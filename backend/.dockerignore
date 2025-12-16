@@ -1,0 +1,29 @@
+# Virtual environment
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data files (mounted volume in production)
+data/
+*.db
+
+# Environment files
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Tests
+test_*.py
+tests/
+
+# Fly.io
+fly.toml
