@@ -7,7 +7,7 @@ import { api } from './api';
  */
 export async function checkAuth(): Promise<boolean> {
   try {
-    await api.getMe();
+    await api.getMe(true);  // Skip redirect on 401 - this is just a check
     return true;
   } catch {
     return false;

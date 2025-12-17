@@ -9,7 +9,8 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    skipRedirectOn401 = false
   ): Promise<T> {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -23,10 +24,13 @@ class ApiClient {
     });
 
     if (response.status === 401) {
-      // Clear session flag and redirect
+      // Clear session flag
       if (typeof window !== 'undefined') {
         sessionStorage.removeItem('authenticated');
-        window.location.href = '/';
+        // Only redirect if not explicitly skipped (e.g., auth checks)
+        if (!skipRedirectOn401 && window.location.pathname !== '/') {
+          window.location.href = '/';
+        }
       }
       throw new Error('Unauthorized');
     }
@@ -50,8 +54,8 @@ class ApiClient {
     return `${this.baseUrl}/auth/google`;
   }
 
-  async getMe() {
-    return this.request<User>('/auth/me');
+  async getMe(skipRedirectOn401 = false) {
+    return this.request<User>('/auth/me', {}, skipRedirectOn401);
   }
 
   // Users
