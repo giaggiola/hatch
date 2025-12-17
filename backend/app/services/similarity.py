@@ -1,6 +1,7 @@
 """
-Name similarity service using embedding vectors.
+Name similarity service using multi-aspect embedding vectors.
 
+Uses phonetic and etymology embeddings from name_facts table for richer similarity.
 Provides fast similarity lookups using numpy for vector operations.
 Embeddings are loaded into memory on first use and cached.
 Uses asyncio.to_thread to avoid blocking the event loop during heavy computations.
@@ -12,64 +13,76 @@ import numpy as np
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Weights for combining embeddings (must sum to 1.0)
+PHONETIC_WEIGHT = 0.6  # Sound/pronunciation similarity
+ETYMOLOGY_WEIGHT = 0.4  # Meaning/origin similarity
+
 # Cache for embeddings (loaded once, reused)
-_embedding_cache: Optional[Dict[str, np.ndarray]] = None
+_phonetic_cache: Optional[Dict[str, np.ndarray]] = None
+_etymology_cache: Optional[Dict[str, np.ndarray]] = None
 _name_data_cache: Optional[Dict[str, Dict]] = None
 _cache_lock = asyncio.Lock()
 
 
-def _parse_embeddings_sync(rows: List) -> Tuple[Dict[str, np.ndarray], Dict[str, Dict]]:
-    """Parse embeddings from database rows (CPU-bound, runs in thread pool)."""
-    embeddings = {}
+def _parse_embeddings_sync(rows: List) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Dict]]:
+    """Parse multi-aspect embeddings from database rows (CPU-bound, runs in thread pool)."""
+    phonetic_embeddings = {}
+    etymology_embeddings = {}
     name_data = {}
 
     for row in rows:
-        name_id, name, gender, embedding_json = row
-        if embedding_json:
-            embedding = np.array(json.loads(embedding_json), dtype=np.float32)
-            embeddings[name] = embedding
+        name_id, name, gender, phonetic_json, etymology_json = row
+        # Only include names that have at least one embedding type
+        if phonetic_json or etymology_json:
+            if phonetic_json:
+                phonetic_embeddings[name] = np.array(json.loads(phonetic_json), dtype=np.float32)
+            if etymology_json:
+                etymology_embeddings[name] = np.array(json.loads(etymology_json), dtype=np.float32)
             name_data[name] = {
                 'id': name_id,
                 'name': name,
                 'gender': gender
             }
 
-    return embeddings, name_data
+    return phonetic_embeddings, etymology_embeddings, name_data
 
 
-async def _load_embeddings(db: AsyncSession) -> Tuple[Dict[str, np.ndarray], Dict[str, Dict]]:
+async def _load_embeddings(db: AsyncSession) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Dict]]:
     """Load all embeddings into memory. Called once and cached."""
-    global _embedding_cache, _name_data_cache
+    global _phonetic_cache, _etymology_cache, _name_data_cache
 
-    if _embedding_cache is not None:
-        return _embedding_cache, _name_data_cache
+    if _phonetic_cache is not None:
+        return _phonetic_cache, _etymology_cache, _name_data_cache
 
     # Use lock to prevent concurrent loading
     async with _cache_lock:
         # Double-check after acquiring lock
-        if _embedding_cache is not None:
-            return _embedding_cache, _name_data_cache
+        if _phonetic_cache is not None:
+            return _phonetic_cache, _etymology_cache, _name_data_cache
 
         result = await db.execute(text("""
-            SELECT id, name, gender, embedding
-            FROM names
-            WHERE embedding IS NOT NULL
+            SELECT n.id, n.name, n.gender, nf.embedding_phonetic, nf.embedding_etymology
+            FROM names n
+            JOIN name_facts nf ON n.id = nf.name_id
+            WHERE nf.embedding_phonetic IS NOT NULL OR nf.embedding_etymology IS NOT NULL
         """))
         rows = result.fetchall()
 
         # Parse embeddings in thread pool to avoid blocking event loop
-        embeddings, name_data = await asyncio.to_thread(_parse_embeddings_sync, rows)
+        phonetic, etymology, name_data = await asyncio.to_thread(_parse_embeddings_sync, rows)
 
-        _embedding_cache = embeddings
+        _phonetic_cache = phonetic
+        _etymology_cache = etymology
         _name_data_cache = name_data
 
-    return embeddings, name_data
+    return _phonetic_cache, _etymology_cache, _name_data_cache
 
 
 def clear_cache():
     """Clear the embedding cache (call after data changes)."""
-    global _embedding_cache, _name_data_cache
-    _embedding_cache = None
+    global _phonetic_cache, _etymology_cache, _name_data_cache
+    _phonetic_cache = None
+    _etymology_cache = None
     _name_data_cache = None
 
 
@@ -85,8 +98,10 @@ def cosine_similarity_batch(query: np.ndarray, vectors: np.ndarray) -> np.ndarra
 
 
 def _compute_similarities_sync(
-    query_embedding: np.ndarray,
-    embeddings: Dict[str, np.ndarray],
+    query_phonetic: Optional[np.ndarray],
+    query_etymology: Optional[np.ndarray],
+    phonetic_embeddings: Dict[str, np.ndarray],
+    etymology_embeddings: Dict[str, np.ndarray],
     name_data: Dict[str, Dict],
     name: str,
     min_similarity: float,
@@ -94,28 +109,56 @@ def _compute_similarities_sync(
     gender: Optional[str],
     top_k: int
 ) -> List[Dict]:
-    """Compute similarities synchronously (CPU-bound, runs in thread pool)."""
-    # Build arrays for batch computation
-    names_list = list(embeddings.keys())
-    vectors = np.array([embeddings[n] for n in names_list])
+    """Compute multi-aspect similarities synchronously (CPU-bound, runs in thread pool).
 
-    # Compute similarities
-    similarities = cosine_similarity_batch(query_embedding, vectors)
-
-    # Build results
+    Combines phonetic and etymology similarity using weighted average.
+    If a name is missing one embedding type, uses only the available one.
+    """
     results = []
-    for i, n in enumerate(names_list):
-        if exclude_self and n == name:
+
+    for target_name, data in name_data.items():
+        if exclude_self and target_name == name:
             continue
         # Filter by gender if specified
-        if gender and name_data[n]['gender'] != gender:
+        if gender and data['gender'] != gender:
             continue
-        sim = float(similarities[i])
-        if sim >= min_similarity:
+
+        # Compute weighted similarity from available embeddings
+        total_weight = 0.0
+        weighted_sim = 0.0
+
+        # Phonetic similarity
+        if query_phonetic is not None and target_name in phonetic_embeddings:
+            target_phonetic = phonetic_embeddings[target_name]
+            phonetic_sim = float(np.dot(
+                query_phonetic / np.linalg.norm(query_phonetic),
+                target_phonetic / np.linalg.norm(target_phonetic)
+            ))
+            weighted_sim += PHONETIC_WEIGHT * phonetic_sim
+            total_weight += PHONETIC_WEIGHT
+
+        # Etymology similarity
+        if query_etymology is not None and target_name in etymology_embeddings:
+            target_etymology = etymology_embeddings[target_name]
+            etymology_sim = float(np.dot(
+                query_etymology / np.linalg.norm(query_etymology),
+                target_etymology / np.linalg.norm(target_etymology)
+            ))
+            weighted_sim += ETYMOLOGY_WEIGHT * etymology_sim
+            total_weight += ETYMOLOGY_WEIGHT
+
+        # Skip if no embeddings matched
+        if total_weight == 0:
+            continue
+
+        # Normalize by actual weights used
+        final_sim = weighted_sim / total_weight
+
+        if final_sim >= min_similarity:
             results.append({
-                'name': n,
-                'gender': name_data[n]['gender'],
-                'similarity': round(sim, 3)
+                'name': target_name,
+                'gender': data['gender'],
+                'similarity': round(final_sim, 3)
             })
 
     # Sort by similarity descending
@@ -133,7 +176,11 @@ async def find_similar_names(
     gender: Optional[str] = None
 ) -> List[Dict]:
     """
-    Find the most similar names to the given name.
+    Find the most similar names to the given name using multi-aspect embeddings.
+
+    Uses weighted combination of:
+    - Phonetic similarity (40%): How similar the names sound
+    - Etymology similarity (60%): Similar meaning/origin
 
     Args:
         db: Database session
@@ -146,18 +193,26 @@ async def find_similar_names(
     Returns:
         List of dicts with 'name', 'gender', 'similarity' keys, sorted by similarity
     """
-    embeddings, name_data = await _load_embeddings(db)
+    phonetic_embeddings, etymology_embeddings, name_data = await _load_embeddings(db)
 
-    if name not in embeddings:
+    if name not in name_data:
         return []
 
-    query_embedding = embeddings[name]
+    # Get query embeddings (may have one or both)
+    query_phonetic = phonetic_embeddings.get(name)
+    query_etymology = etymology_embeddings.get(name)
+
+    # Need at least one embedding to compute similarity
+    if query_phonetic is None and query_etymology is None:
+        return []
 
     # Run similarity computation in thread pool to avoid blocking event loop
     results = await asyncio.to_thread(
         _compute_similarities_sync,
-        query_embedding,
-        embeddings,
+        query_phonetic,
+        query_etymology,
+        phonetic_embeddings,
+        etymology_embeddings,
         name_data,
         name,
         min_similarity,
