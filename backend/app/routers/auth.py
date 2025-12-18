@@ -118,7 +118,7 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",  # Allows cookie on redirect from OAuth provider
+        samesite="none",  # Required for cross-origin requests (frontend and backend on different domains)
         path="/",
     )
     return response
@@ -138,6 +138,6 @@ async def logout(response: Response):
         path="/",
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite="none",
     )
     return {"message": "Logged out successfully"}

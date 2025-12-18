@@ -38,8 +38,15 @@ export default function SwipeCardWithSimilar({
   };
 
   const isMale = name.gender === 'M';
-  // Take first 5 similar names for display
-  const displayedVariants = name.similar.slice(0, 5);
+  // Dedupe and take first 5 similar names for display
+  const seenIds = new Set<string>();
+  const displayedVariants = name.similar
+    .filter((v) => {
+      if (seenIds.has(v.id)) return false;
+      seenIds.add(v.id);
+      return true;
+    })
+    .slice(0, 5);
 
   // Dynamic font size based on name length
   const getNameFontSize = (nameStr: string) => {
@@ -48,15 +55,6 @@ export default function SwipeCardWithSimilar({
     return 'text-5xl';
   };
 
-  // Dynamic font size for variant chips - scale down to always fit
-  const getVariantFontSize = (nameStr: string) => {
-    if (nameStr.length > 14) return 'text-[8px]';
-    if (nameStr.length > 12) return 'text-[9px]';
-    if (nameStr.length > 10) return 'text-[10px]';
-    if (nameStr.length > 8) return 'text-xs';
-    if (nameStr.length > 6) return 'text-sm';
-    return 'text-base';
-  };
 
   // Color scheme based on gender
   const gradientClass = isMale
@@ -131,7 +129,7 @@ export default function SwipeCardWithSimilar({
                       e.stopPropagation();
                       onToggleVariant(variant.id);
                     }}
-                    className={`rounded-xl p-3 transition-all relative ${
+                    className={`rounded-xl px-2 py-2 transition-all relative h-14 flex items-center justify-center ${
                       isSelected
                         ? isMale
                           ? 'bg-blue-50 dark:bg-blue-900/30 border-2 border-blue-500'
@@ -148,7 +146,7 @@ export default function SwipeCardWithSimilar({
                         +
                       </div>
                     )}
-                    <div className={`font-medium text-gray-900 dark:text-white ${getVariantFontSize(variant.name)} text-center whitespace-nowrap`}>{variant.name}</div>
+                    <div className="font-medium text-gray-900 dark:text-white text-sm text-center leading-tight line-clamp-2">{variant.name}</div>
                   </button>
                 );
               })}

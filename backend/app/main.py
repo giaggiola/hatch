@@ -3,10 +3,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.config import get_settings
-from app.routers import auth, users, invites, names, swipes, matches, preferences
+from app.routers import auth, users, invites, names, swipes, matches, preferences, custom_names
 from app.admin import setup_admin
 from app.rate_limiter import limiter
 
@@ -24,6 +25,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Setup admin panel at /admin
 setup_admin(app)
+
+# Proxy headers middleware (required for correct HTTPS URL generation behind reverse proxy)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # Session middleware (required for OAuth)
 app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret)
@@ -45,6 +49,7 @@ app.include_router(names.router, prefix="/api")
 app.include_router(swipes.router, prefix="/api")
 app.include_router(matches.router, prefix="/api")
 app.include_router(preferences.router, prefix="/api")
+app.include_router(custom_names.router, prefix="/api")
 
 
 @app.get("/")

@@ -47,9 +47,10 @@ async def create_swipe(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Record a swipe on a single name and check for match."""
-    if not current_user.couple_id:
-        raise HTTPException(status_code=400, detail="User must be in a couple to swipe")
+    """Record a swipe on a single name and check for match.
+
+    Solo users can swipe - matches only checked when in a couple.
+    """
 
     # Check if name exists
     name_result = await db.execute(select(Name).where(Name.id == swipe_data.name_id))
@@ -77,9 +78,9 @@ async def create_swipe(
     db.add(swipe)
     await db.commit()
 
-    # Check for match if this was a like
+    # Check for match if this was a like AND user is in a couple
     is_match = False
-    if swipe_data.action == "like":
+    if swipe_data.action == "like" and current_user.couple_id:
         is_match = await check_for_match(
             db=db,
             couple_id=current_user.couple_id,
@@ -105,9 +106,8 @@ async def create_batch_swipes(
     Create multiple swipes at once (used when swiping on a card).
     Skips names that were already swiped.
     Returns count of created swipes and any matches found.
+    Solo users can swipe - matches only checked when in a couple.
     """
-    if not current_user.couple_id:
-        raise HTTPException(status_code=400, detail="User must be in a couple to swipe")
 
     if not batch_data.swipes:
         raise HTTPException(status_code=400, detail="No swipes provided")
@@ -149,8 +149,8 @@ async def create_batch_swipes(
         db.add(swipe)
         created_count += 1
 
-        # Check for match if this was a like
-        if swipe_data.action == "like":
+        # Check for match if this was a like AND user is in a couple
+        if swipe_data.action == "like" and current_user.couple_id:
             is_match = await check_for_match(
                 db=db,
                 couple_id=current_user.couple_id,

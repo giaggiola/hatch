@@ -155,6 +155,22 @@ class ApiClient {
     return this.request<NameFacts>(`/names/${nameId}/facts`);
   }
 
+  // Custom Names
+  async createCustomName(data: { name: string; gender: 'M' | 'F' | 'U' }) {
+    return this.request<CustomName>('/custom-names', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getCustomNames() {
+    return this.request<CustomName[]>('/custom-names');
+  }
+
+  async deleteCustomName(id: string) {
+    return this.request(`/custom-names/${id}`, { method: 'DELETE' });
+  }
+
   // Swipes
   async checkSwipeStatus(nameId: string) {
     return this.request<{ action: 'like' | 'dismiss' | null }>(`/swipes/check/${nameId}`);
@@ -194,6 +210,12 @@ class ApiClient {
   // Matches
   async getMatches(limit = 50, offset = 0) {
     return this.request<Match[]>(`/matches?limit=${limit}&offset=${offset}`);
+  }
+
+  async getCloseCalls(limit = 20, minSimilarity = 0.75) {
+    return this.request<CloseCall[]>(
+      `/matches/close-calls?limit=${limit}&min_similarity=${minSimilarity}`
+    );
   }
 
   // Preferences
@@ -302,6 +324,19 @@ export interface Match extends Name {
   matched_at: string;
 }
 
+export interface CloseCallName {
+  id: string;
+  name: string;
+  gender?: 'M' | 'F' | 'U';
+  countries?: string[];
+}
+
+export interface CloseCall {
+  similarity: number;
+  your_name: CloseCallName;
+  partner_name: CloseCallName;
+}
+
 export interface Preferences {
   origins: string[];
   genders: string[];
@@ -374,5 +409,14 @@ export interface NameWithSimilar {
   popularity_rank?: number;
   weighted_count?: number;
   similar: SimilarName[];  // Similar name variants computed on-the-fly
+}
+
+export interface CustomName {
+  id: string;
+  name: string;
+  gender: 'M' | 'F' | 'U';
+  user_id: string;
+  couple_id: string;
+  created_at: string;
 }
 

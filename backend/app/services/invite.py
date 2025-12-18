@@ -3,9 +3,10 @@ import string
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from app.models.invite import Invite
 from app.models.user import User
+from app.models.swipe import Swipe
 
 
 def generate_invite_code() -> str:
@@ -55,7 +56,11 @@ async def get_invite_by_code(db: AsyncSession, code: str) -> Optional[Invite]:
 
 
 async def accept_invite(db: AsyncSession, invite: Invite, user: User) -> bool:
-    """Accept an invite and join the couple"""
+    """Accept an invite and join the couple.
+
+    Also updates all the user's existing swipes to have the new couple_id,
+    so any names they liked while solo will be matched against their partner's likes.
+    """
     # Check if invite is valid
     if invite.status != "pending":
         return False
@@ -71,5 +76,14 @@ async def accept_invite(db: AsyncSession, invite: Invite, user: User) -> bool:
     # Join the couple
     user.couple_id = invite.couple_id
     invite.status = "accepted"
+
+    # Update all user's existing swipes to have the new couple_id
+    # This ensures their previous likes can be matched against partner's likes
+    await db.execute(
+        update(Swipe)
+        .where(Swipe.user_id == user.id)
+        .values(couple_id=invite.couple_id)
+    )
+
     await db.commit()
     return True

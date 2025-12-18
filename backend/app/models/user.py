@@ -22,6 +22,7 @@ class User(Base):
     preferences = relationship("UserPreference", back_populates="user", uselist=False)
     swipes = relationship("Swipe", back_populates="user")
     invites_sent = relationship("Invite", back_populates="invited_by_user", foreign_keys="Invite.invited_by")
+    custom_names = relationship("CustomName", back_populates="user")
 
     def __str__(self):
         return self.display_name or self.email.split("@")[0]

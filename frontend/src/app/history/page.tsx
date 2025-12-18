@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, Swipe, Match } from '@/lib/api';
+import { api, Swipe, Match, CloseCall } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { formatCountries } from '@/lib/countries';
 import BottomNav from '@/components/BottomNav';
@@ -16,6 +16,7 @@ export default function HistoryPage() {
   const [likes, setLikes] = useState<Swipe[]>([]);
   const [dismisses, setDismisses] = useState<Swipe[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
+  const [closeCalls, setCloseCalls] = useState<CloseCall[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
@@ -27,14 +28,16 @@ export default function HistoryPage() {
 
     const loadData = async () => {
       try {
-        const [likesData, dismissData, matchesData] = await Promise.all([
+        const [likesData, dismissData, matchesData, closeCallsData] = await Promise.all([
           api.getSwipes('like'),
           api.getSwipes('dismiss'),
           api.getMatches(),
+          api.getCloseCalls(20, 0.75),
         ]);
         setLikes(likesData);
         setDismisses(dismissData);
         setMatches(matchesData);
+        setCloseCalls(closeCallsData);
       } catch (error) {
         console.error('Error loading history:', error);
       } finally {
@@ -93,14 +96,6 @@ export default function HistoryPage() {
     .map(swipe => swipe.name!)
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const totalSwiped = sortedLikedNames.length + sortedDismissedNames.length;
-
-  const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: 'matches', label: 'Matches', count: sortedMatches.length },
-    { key: 'likes', label: 'Likes', count: sortedLikedNames.length },
-    { key: 'dismisses', label: 'Passed', count: sortedDismissedNames.length },
-  ];
-
   return (
     <div className="min-h-screen pb-20 bg-gradient-to-br from-pink-100 via-purple-50 to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Header */}
@@ -109,47 +104,110 @@ export default function HistoryPage() {
         <p className="text-white/80 text-sm">Your swipe activity and matches</p>
       </div>
 
-      {/* Stats Section */}
+      {/* Clickable Stats Section */}
       <div className="px-4 -mt-4 relative z-10">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-4">
           <div className="grid grid-cols-3 gap-4">
-            <div className="text-center">
+            <button
+              onClick={() => setActiveTab('matches')}
+              className={`text-center p-2 rounded-xl transition-all ${
+                activeTab === 'matches'
+                  ? 'bg-pink-50 dark:bg-pink-900/30 ring-2 ring-pink-300 dark:ring-pink-600'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
               <div className="text-3xl font-bold text-pink-500">{sortedMatches.length}</div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Matches</div>
-            </div>
-            <div className="text-center border-x border-gray-100 dark:border-gray-700">
+            </button>
+            <button
+              onClick={() => setActiveTab('likes')}
+              className={`text-center p-2 rounded-xl transition-all border-x border-gray-100 dark:border-gray-700 ${
+                activeTab === 'likes'
+                  ? 'bg-rose-50 dark:bg-rose-900/30 ring-2 ring-rose-300 dark:ring-rose-600'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
               <div className="text-3xl font-bold text-rose-400">{sortedLikedNames.length}</div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Liked</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-gray-400">{totalSwiped}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total Swiped</div>
-            </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('dismisses')}
+              className={`text-center p-2 rounded-xl transition-all ${
+                activeTab === 'dismisses'
+                  ? 'bg-gray-100 dark:bg-gray-700 ring-2 ring-gray-300 dark:ring-gray-500'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              <div className="text-3xl font-bold text-gray-400">{sortedDismissedNames.length}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Passed</div>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="px-4 mt-6">
-        <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl p-1 flex">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all ${
-                activeTab === tab.key
-                  ? 'bg-white dark:bg-gray-700 text-pink-600 dark:text-pink-400 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              {tab.label} ({tab.count})
-            </button>
-          ))}
+      {/* Close Calls Section - Show when on matches or likes tab */}
+      {(activeTab === 'matches' || activeTab === 'likes') && closeCalls.length > 0 && (
+        <div className="px-4 mt-6">
+          <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+            <span className="text-xl">🎯</span> Close Calls
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            You and your partner liked similar names - consider these!
+          </p>
+          <div className="space-y-2">
+            {closeCalls.map((cc, index) => (
+              <div
+                key={`${cc.your_name.id}-${cc.partner_name.id}-${index}`}
+                className="flex items-center justify-between bg-amber-50/80 dark:bg-amber-900/20 backdrop-blur-sm rounded-xl px-4 py-3 shadow-sm border border-amber-200/50 dark:border-amber-700/30"
+              >
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/name/${cc.partner_name.id}`}
+                      className="font-medium text-gray-900 dark:text-white hover:text-amber-700 dark:hover:text-amber-400 transition-colors"
+                    >
+                      {cc.partner_name.name}
+                    </Link>
+                    <span className="text-xs text-gray-400">←</span>
+                    <Link
+                      href={`/name/${cc.your_name.id}`}
+                      className="text-sm text-amber-600 dark:text-amber-400 hover:underline"
+                    >
+                      {cc.your_name.name}
+                    </Link>
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Partner liked • {Math.round(cc.similarity * 100)}% similar to yours
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleChangeSwipe(cc.partner_name.id, 'like')}
+                  disabled={updatingId === cc.partner_name.id}
+                  className="ml-2 p-2 text-amber-500 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/30 rounded-full transition-colors disabled:opacity-50"
+                  title="Like this name too"
+                >
+                  {updatingId === cc.partner_name.id ? (
+                    <span className="block w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></span>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
-      <div className="px-4 mt-4">
+      <div className="px-4 mt-6">
+        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
+          {activeTab === 'matches' && 'Your Matches'}
+          {activeTab === 'likes' && 'Names You Liked'}
+          {activeTab === 'dismisses' && 'Names You Passed'}
+        </h2>
+
         {activeTab === 'matches' && (
           <div className="space-y-2">
             {sortedMatches.length === 0 ? (

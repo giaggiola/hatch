@@ -14,6 +14,5 @@ COPY alembic alembic/
 COPY alembic.ini .
 COPY app app/
 
-# Run migrations and seed data if needed, then start server
-# The seed script checks if data exists before re-seeding
-CMD ["sh", "-c", "alembic upgrade head && python -m app.seed.names && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Run migrations then start server
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

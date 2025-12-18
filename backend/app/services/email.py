@@ -7,19 +7,26 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-# Email configuration
-conf = ConnectionConfig(
-    MAIL_USERNAME=settings.mail_username,
-    MAIL_PASSWORD=settings.mail_password,
-    MAIL_FROM=settings.mail_from,
-    MAIL_PORT=settings.mail_port,
-    MAIL_SERVER=settings.mail_server,
-    MAIL_STARTTLS=settings.mail_starttls,
-    MAIL_SSL_TLS=settings.mail_ssl_tls,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True,
-    TEMPLATE_FOLDER=Path(__file__).parent.parent / "templates",
-)
+# Email configuration - lazy loaded to avoid validation errors when not configured
+_conf = None
+
+def get_email_config():
+    """Get email config, creating it lazily only when needed."""
+    global _conf
+    if _conf is None and is_email_configured():
+        _conf = ConnectionConfig(
+            MAIL_USERNAME=settings.mail_username,
+            MAIL_PASSWORD=settings.mail_password,
+            MAIL_FROM=settings.mail_from,
+            MAIL_PORT=settings.mail_port,
+            MAIL_SERVER=settings.mail_server,
+            MAIL_STARTTLS=settings.mail_starttls,
+            MAIL_SSL_TLS=settings.mail_ssl_tls,
+            USE_CREDENTIALS=True,
+            VALIDATE_CERTS=True,
+            TEMPLATE_FOLDER=Path(__file__).parent.parent / "templates",
+        )
+    return _conf
 
 
 def is_email_configured() -> bool:
@@ -138,6 +145,10 @@ This invite expires in 7 days.
             subtype=MessageType.html,
         )
 
+        conf = get_email_config()
+        if not conf:
+            logger.warning("Email config not available")
+            return False
         fm = FastMail(conf)
         await fm.send_message(message)
         logger.info(f"Invite email sent successfully to {to_email}")

@@ -106,7 +106,13 @@ export default function SwipePage() {
   const loadMoreNames = useCallback(async () => {
     try {
       const moreNames = await api.getNamesForSwiping(10);
-      setNames((prev) => [...prev, ...moreNames]);
+
+      setNames((prev) => {
+        // Dedupe: only add names not already in the list
+        const existingIds = new Set(prev.map(n => n.id));
+        const newUniqueNames = moreNames.filter(n => !existingIds.has(n.id));
+        return [...prev, ...newUniqueNames];
+      });
 
       // Initialize selections for new names
       setSelectedVariants((prevSelections) => {

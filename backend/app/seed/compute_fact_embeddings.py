@@ -25,7 +25,7 @@ import google.generativeai as genai
 load_dotenv()
 
 # Paths
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "baby_names.db"
+DB_PATH = Path(__file__).parent.parent.parent / "data" / "hatch.db"
 CSV_PATH = Path(__file__).parent.parent.parent / "data" / "fact_embeddings.csv"
 
 # Config
@@ -147,11 +147,18 @@ def build_embedding_texts(row: tuple) -> dict:
         if isinstance(char, dict) and char.get('description'):
             assoc_parts.append(char['description'])
 
-    # Add cultural references
+    # Add cultural references (handle both string and list-of-objects formats)
     if isinstance(cultural, dict):
         for key in ['religious', 'mythological', 'literary']:
-            if cultural.get(key):
-                assoc_parts.append(cultural[key])
+            value = cultural.get(key)
+            if value:
+                if isinstance(value, str):
+                    assoc_parts.append(value)
+                elif isinstance(value, list):
+                    # Extract descriptions from list of objects
+                    for item in value[:2]:
+                        if isinstance(item, dict) and item.get('description'):
+                            assoc_parts.append(item['description'])
     elif isinstance(cultural, str) and cultural:
         assoc_parts.append(cultural)
 

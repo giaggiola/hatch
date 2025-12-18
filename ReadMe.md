@@ -28,8 +28,14 @@
 - **PWA**: `next-pwa` package
 - **Styling**: Tailwind CSS
 - **Animations**: Framer Motion (for swipe gestures)
+- **Data Fetching**: React Query (@tanstack/react-query)
+- **QR Codes**: qrcode.react (for invite sharing)
 - **Containerization**: Docker + Docker Compose
-- **Hosting**: Fly.io (API + persistent volume for SQLite) + Vercel (Frontend)
+- **Hosting**: Fly.io (API + Frontend, persistent volume for SQLite)
+- **Admin Panel**: SQLAdmin (at `/admin` endpoint)
+- **Rate Limiting**: SlowAPI
+- **Email**: FastAPI-Mail (Gmail SMTP)
+- **CI/CD**: GitHub Actions (auto-deploy on push to main)
 
 ---
 
@@ -119,16 +125,52 @@ CREATE TABLE names (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     gender TEXT CHECK (gender IN ('M', 'F', 'U')),
-    origin TEXT NOT NULL,                 -- 'italian', 'english', 'irish'
     meaning TEXT,
-    popularity_rank INTEGER,
-    length INTEGER                        -- computed on insert
+    length INTEGER,                       -- computed on insert
+    embedding BLOB                        -- vector embedding for similarity
 );
 
 -- Indexes for filtered queries
-CREATE INDEX idx_names_origin ON names(origin);
 CREATE INDEX idx_names_gender ON names(gender);
 CREATE INDEX idx_names_length ON names(length);
+
+-- Name Popularity (per country)
+CREATE TABLE name_popularity (
+    id TEXT PRIMARY KEY,
+    name_id TEXT NOT NULL REFERENCES names(id),
+    country_code TEXT NOT NULL,           -- 'US', 'IT', 'IE', etc.
+    popularity_rank INTEGER,
+    weighted_count REAL,
+    UNIQUE(name_id, country_code)
+);
+
+CREATE INDEX idx_name_popularity_country ON name_popularity(country_code);
+CREATE INDEX idx_name_popularity_rank ON name_popularity(popularity_rank);
+
+-- Name Facts (meaning, etymology, etc.)
+CREATE TABLE name_fact (
+    id TEXT PRIMARY KEY,
+    name_id TEXT UNIQUE NOT NULL REFERENCES names(id),
+    pronunciation TEXT,
+    etymology TEXT,
+    historical_figures TEXT,              -- JSON array
+    fictional_characters TEXT,            -- JSON array
+    cultural_references TEXT,             -- JSON array
+    embedding BLOB                        -- fact embedding for similarity
+);
+
+-- Name Similarity (pre-computed similar names)
+CREATE TABLE name_similarity (
+    id TEXT PRIMARY KEY,
+    name_id TEXT NOT NULL REFERENCES names(id),
+    similar_name_id TEXT NOT NULL REFERENCES names(id),
+    similarity_score REAL NOT NULL,
+    rank INTEGER NOT NULL,                -- 1-20 for top similar names
+    UNIQUE(name_id, similar_name_id)
+);
+
+CREATE INDEX idx_name_similarity_name ON name_similarity(name_id);
+CREATE INDEX idx_name_similarity_rank ON name_similarity(rank);
 
 -- Swipes (likes & dismisses)
 CREATE TABLE swipes (
@@ -175,24 +217,32 @@ WHERE s1.action = 'like' AND s2.action = 'like';
 ## Project Structure
 
 ```
-baby-name-swiper/
-├── docker-compose.yml           # Local dev: API + DB + Frontend
-├── fly.toml                     # Fly.io deployment config
+hatch/
+├── docker-compose.yml           # Local dev: API + Frontend
+├── .github/
+│   └── workflows/
+│       └── deploy.yml           # CI/CD: auto-deploy to Fly.io
 │
 ├── backend/
 │   ├── Dockerfile
+│   ├── fly.toml                 # Fly.io backend config
 │   ├── requirements.txt
 │   ├── alembic/                 # DB migrations
-│   │   └── versions/
+│   │   └── versions/            # 14+ migration files
 │   ├── app/
 │   │   ├── main.py              # FastAPI app entry
 │   │   ├── config.py            # Settings & env vars
-│   │   ├── database.py          # DB connection
+│   │   ├── database.py          # Async DB connection
+│   │   ├── admin.py             # SQLAdmin panel setup
+│   │   ├── rate_limiter.py      # API rate limiting
 │   │   ├── models/
 │   │   │   ├── user.py
 │   │   │   ├── couple.py
 │   │   │   ├── invite.py
 │   │   │   ├── name.py
+│   │   │   ├── name_popularity.py
+│   │   │   ├── name_fact.py
+│   │   │   ├── name_similarity.py
 │   │   │   ├── swipe.py
 │   │   │   └── preference.py
 │   │   ├── schemas/
@@ -205,20 +255,25 @@ baby-name-swiper/
 │   │   │   ├── auth.py          # Google OAuth endpoints
 │   │   │   ├── users.py         # User settings, delete account
 │   │   │   ├── invites.py       # Create/accept invites
-│   │   │   ├── names.py         # Get names to swipe (with filters)
-│   │   │   ├── swipes.py        # Record swipes, get history
+│   │   │   ├── names.py         # Names + explore + similarity
+│   │   │   ├── swipes.py        # Record swipes, batch ops
 │   │   │   ├── matches.py       # Get matches
 │   │   │   └── preferences.py   # Get/update filter preferences
 │   │   ├── services/
 │   │   │   ├── auth.py          # Google OAuth logic
 │   │   │   ├── invite.py        # Invite code generation
-│   │   │   └── matching.py      # Match detection
+│   │   │   ├── matching.py      # Match detection
+│   │   │   ├── similarity.py    # Name similarity engine
+│   │   │   ├── name_service.py  # Origin/country mapping
+│   │   │   └── email.py         # Email notifications
 │   │   └── seed/
-│   │       └── names.py         # Seed name data
-│   └── tests/
+│   │       ├── import_names.py  # Import from CSV
+│   │       └── compute_similarities.py
+│   └── data/                    # SQLite database storage
 │
 ├── frontend/
 │   ├── Dockerfile
+│   ├── fly.toml                 # Fly.io frontend config
 │   ├── public/
 │   │   ├── manifest.json
 │   │   └── icons/
@@ -231,43 +286,57 @@ baby-name-swiper/
 │   │   │   ├── swipe/
 │   │   │   │   └── page.tsx          # Main swipe interface
 │   │   │   ├── history/
-│   │   │   │   ├── page.tsx          # Tabs: Likes / Dismisses / Matches
-│   │   │   │   ├── likes/page.tsx
-│   │   │   │   ├── dismisses/page.tsx
-│   │   │   │   └── matches/page.tsx
-│   │   │   ├── filters/
-│   │   │   │   └── page.tsx          # Filter preferences
+│   │   │   │   └── page.tsx          # Likes / Dismisses / Matches
+│   │   │   ├── explore/
+│   │   │   │   ├── page.tsx          # Browse by region
+│   │   │   │   └── [origin]/page.tsx # Names by origin
+│   │   │   ├── popular/
+│   │   │   │   └── page.tsx          # Popular names
+│   │   │   ├── name/
+│   │   │   │   └── [id]/page.tsx     # Name details
 │   │   │   ├── invite/
-│   │   │   │   ├── page.tsx          # Create invite
 │   │   │   │   └── [code]/page.tsx   # Accept invite
 │   │   │   └── settings/
-│   │   │       └── page.tsx          # Logout, delete, family name
+│   │   │       └── page.tsx          # Profile, filters, logout
 │   │   ├── components/
-│   │   │   ├── SwipeCard.tsx
-│   │   │   ├── SwipeStack.tsx
+│   │   │   ├── SwipeCardWithSimilar.tsx  # Swipe card + variants
 │   │   │   ├── MatchModal.tsx
 │   │   │   ├── GoogleSignIn.tsx
-│   │   │   ├── InviteLink.tsx
-│   │   │   ├── NameList.tsx          # Reusable list for history
-│   │   │   ├── NameCard.tsx          # Name in list with actions
-│   │   │   ├── FilterForm.tsx        # Filter controls
-│   │   │   ├── BottomNav.tsx         # Navigation tabs
-│   │   │   └── ConfirmModal.tsx      # For delete account etc
+│   │   │   ├── InviteShareModal.tsx
+│   │   │   ├── InviteQRCode.tsx
+│   │   │   ├── BottomNav.tsx
+│   │   │   ├── AppShell.tsx
+│   │   │   ├── LoadingSpinner.tsx
+│   │   │   ├── SearchAutocomplete.tsx
+│   │   │   ├── LikeButton.tsx
+│   │   │   ├── explore/
+│   │   │   │   ├── PopularNames.tsx
+│   │   │   │   └── RegionAccordion.tsx
+│   │   │   └── settings/
+│   │   │       ├── ProfileSection.tsx
+│   │   │       ├── FiltersSection.tsx
+│   │   │       ├── AppearanceSection.tsx
+│   │   │       └── DeleteAccountModal.tsx
+│   │   ├── contexts/
+│   │   │   └── ThemeContext.tsx      # Light/dark mode
+│   │   ├── hooks/
+│   │   │   └── useSwipeState.ts
 │   │   └── lib/
 │   │       ├── api.ts                # API client
 │   │       ├── auth.ts               # Auth helpers
-│   │       └── hooks/
-│   │           ├── useSwipe.ts
-│   │           ├── useHistory.ts
-│   │           ├── useFilters.ts
-│   │           └── useMatches.ts
+│   │       ├── query.tsx             # React Query setup
+│   │       ├── constants.ts
+│   │       ├── regions.ts
+│   │       └── countries.ts
 │   ├── next.config.js
 │   └── package.json
 │
 └── data/
-    ├── italian_names.csv
-    ├── english_names.csv
-    └── irish_names.csv
+    ├── raw/                     # Original name datasets
+    └── merged/
+        ├── merged_names.csv
+        ├── merged_name_popularity.csv
+        └── merge_names.py
 ```
 
 ---
@@ -333,54 +402,72 @@ Settings → Delete account → Confirm modal → All data deleted → Landing
 
 ### Auth
 ```
-GET  /auth/google              → Redirect to Google OAuth
-GET  /auth/google/callback     → Handle OAuth callback, return JWT
-GET  /auth/me                  → Get current user info
-POST /auth/logout              → Invalidate session
+GET  /api/auth/google              → Redirect to Google OAuth
+GET  /api/auth/google/callback     → Handle OAuth callback, set httpOnly cookie
+GET  /api/auth/me                  → Get current user info
+POST /api/auth/logout              → Clear session cookie
 ```
 
 ### Users / Settings
 ```
-PATCH  /users/me               → Update user (family_name, display_name)
-DELETE /users/me               → Delete account + all data
+PATCH  /api/users/me               → Update user (family_name, display_name)
+DELETE /api/users/me               → Delete account + all data
+GET    /api/users/partner          → Get partner info (if in couple)
 ```
 
 ### Invites
 ```
-POST /invites                  → Create invite link (returns code)
-GET  /invites/{code}           → Get invite details
-POST /invites/{code}/accept    → Accept invite, join couple
+POST /api/invites                  → Create invite link (returns code)
+GET  /api/invites                  → List user's invites
+GET  /api/invites/{code}           → Get invite details
+POST /api/invites/{code}/accept    → Accept invite, join couple
 ```
 
 ### Preferences / Filters
 ```
-GET  /preferences              → Get user's filter preferences
-PUT  /preferences              → Update filter preferences
-                                  Body: { origins, genders, starting_letters, max_length }
+GET  /api/preferences              → Get user's filter preferences
+PUT  /api/preferences              → Update filter preferences
+                                      Body: { origins, genders, starting_letters, max_length }
 ```
 
 ### Names
 ```
-GET  /names                    → Get next batch of names to swipe
-                                  (auto-applies user's filter preferences)
-                                  Query: ?limit=20
+GET  /api/names                    → Get next batch of names to swipe
+                                      (auto-applies user's filter preferences)
+                                      Query: ?limit=20
+GET  /api/names/{id}               → Get name details (facts, popularity)
+GET  /api/names/{id}/similar       → Get similar name variants
+GET  /api/names/explore            → Browse names by origin/popularity
+                                      Query: ?origin=italian&gender=M&limit=50
+GET  /api/names/popular            → Get popular names by country
+                                      Query: ?country=US&limit=50
+GET  /api/names/search             → Search names by prefix
+                                      Query: ?q=Mar&limit=10
 ```
 
 ### Swipes / History
 ```
-POST   /swipes                 → Record a swipe { name_id, action }
-                                  Returns { match: true/false, name?: {...} }
-GET    /swipes                 → Get swipe history
-                                  Query: ?action=like|dismiss&limit=50&offset=0
-PATCH  /swipes/{name_id}       → Change a previous swipe (undo/change)
-                                  Body: { action: 'like' | 'dismiss' }
-DELETE /swipes/{name_id}       → Remove swipe (name goes back to queue)
+POST   /api/swipes                 → Record a swipe { name_id, action }
+                                      Returns { match: true/false, name?: {...} }
+POST   /api/swipes/batch           → Batch swipe multiple names
+                                      Body: { name_ids: [...], action }
+GET    /api/swipes                 → Get swipe history
+                                      Query: ?action=like|dismiss&limit=50&offset=0
+PATCH  /api/swipes/{name_id}       → Change a previous swipe (undo/change)
+                                      Body: { action: 'like' | 'dismiss' }
+DELETE /api/swipes/{name_id}       → Remove swipe (name goes back to queue)
 ```
 
 ### Matches
 ```
-GET  /matches                  → Get all matches for couple
-                                  Query: ?limit=50&offset=0
+GET  /api/matches                  → Get all matches for couple
+                                      Query: ?limit=50&offset=0
+```
+
+### Admin & Health
+```
+GET  /health                       → Health check
+GET  /admin                        → SQLAdmin panel (admin users only)
 ```
 
 ---
@@ -544,7 +631,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: sqlite:///./data/baby_names.db
+      DATABASE_URL: sqlite+aiosqlite:///./data/hatch.db
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       JWT_SECRET: ${JWT_SECRET}
@@ -584,25 +671,56 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ## Fly.io Deployment
 
-### fly.toml (backend)
+### fly.toml (backend - in backend/ directory)
 ```toml
-app = "baby-name-swiper-api"
-primary_region = "ewr"  # New Jersey
+app = "hatch-api"
+primary_region = "iad"  # Virginia
 
 [build]
-  dockerfile = "backend/Dockerfile"
 
 [env]
-  PORT = "8000"
-  DATABASE_URL = "sqlite:///data/baby_names.db"
+  DATABASE_URL = "sqlite+aiosqlite:///./data/hatch.db"
+
+[[mounts]]
+  source = "hatch_data"
+  destination = "/app/data"
 
 [http_service]
   internal_port = 8000
   force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
 
-[mounts]
-  source = "baby_names_data"
-  destination = "/app/data"
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+```
+
+### fly.toml (frontend - in frontend/ directory)
+```toml
+app = "hatch-app"
+primary_region = "iad"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
 ```
 
 ### Deploy commands
@@ -613,25 +731,71 @@ curl -L https://fly.io/install.sh | sh
 # Login
 fly auth login
 
-# Launch app (first time)
+# Launch backend (first time, from backend/ directory)
 cd backend
 fly launch
 
 # Create persistent volume for SQLite (important!)
-fly volumes create baby_names_data --size 1 --region ewr
+fly volumes create hatch_data --size 1 --region iad
 
 # Set secrets
-fly secrets set GOOGLE_CLIENT_ID=xxx GOOGLE_CLIENT_SECRET=xxx JWT_SECRET=xxx FRONTEND_URL=https://your-frontend.vercel.app
+fly secrets set GOOGLE_CLIENT_ID=xxx GOOGLE_CLIENT_SECRET=xxx JWT_SECRET=xxx FRONTEND_URL=https://hatch-app.fly.dev
 
-# Deploy
+# Deploy backend
 fly deploy
 
-# Run migrations (SSH into the app)
+# Launch frontend (from frontend/ directory)
+cd ../frontend
+fly launch
+fly deploy
+
+# Run migrations (SSH into the backend)
+cd ../backend
 fly ssh console -C "alembic upgrade head"
 
 # Seed data
-fly ssh console -C "python -m app.seed.names"
+fly ssh console -C "python -m app.seed.import_names"
 ```
+
+### CI/CD (GitHub Actions)
+
+The project includes automatic deployment on push to main. See `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-action/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-action/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+```
+
+**Setup:** Add `FLY_API_TOKEN` to your GitHub repository secrets (get it from `fly tokens create deploy`).
 
 **SQLite on Fly.io Notes:**
 - Must use a persistent volume (data survives deploys)
@@ -642,69 +806,76 @@ fly ssh console -C "python -m app.seed.names"
 
 ## Implementation Plan
 
-### Week 1: Backend Foundation
-- [ ] Set up FastAPI project structure
-- [ ] Configure SQLAlchemy + Alembic
-- [ ] Create database models
-- [ ] Implement Google OAuth
-- [ ] Build invite system (create/accept)
-- [ ] Seed names data
+### Phase 1: Backend Foundation
+- [x] Set up FastAPI project structure
+- [x] Configure SQLAlchemy + Alembic (async)
+- [x] Create database models
+- [x] Implement Google OAuth
+- [x] Build invite system (create/accept)
+- [x] Seed names data
 
-### Week 2: Core API + Frontend Setup
-- [ ] Names endpoint (get unswiped names)
-- [ ] Swipes endpoint (record + detect match)
-- [ ] Matches endpoint
-- [ ] Set up Next.js with Tailwind
-- [ ] Google Sign-In button
-- [ ] API client setup
+### Phase 2: Core API + Frontend Setup
+- [x] Names endpoint (get unswiped names)
+- [x] Swipes endpoint (record + detect match)
+- [x] Matches endpoint
+- [x] Set up Next.js with Tailwind
+- [x] Google Sign-In button
+- [x] API client setup (React Query)
 
-### Week 3: Swipe UI
-- [ ] Build swipe card component (Framer Motion)
-- [ ] Swipe gestures + animations
-- [ ] Match modal ("It's a match!")
-- [ ] Matches list view
-- [ ] Invite flow UI
+### Phase 3: Swipe UI
+- [x] Build swipe card component (Framer Motion)
+- [x] Swipe gestures + animations
+- [x] Match modal ("It's a match!")
+- [x] Matches list view
+- [x] Invite flow UI (with QR code)
 
-### Week 4: PWA + Deploy
-- [ ] PWA setup (manifest, service worker)
-- [ ] Docker compose for local dev
-- [ ] Deploy backend to Fly.io
-- [ ] Deploy frontend to Vercel (or Fly.io)
-- [ ] Testing + bug fixes
+### Phase 4: PWA + Deploy
+- [x] PWA setup (manifest, service worker)
+- [x] Docker compose for local dev
+- [x] Deploy backend to Fly.io
+- [x] Deploy frontend to Fly.io
+- [x] CI/CD with GitHub Actions
+
+### Phase 5: Advanced Features (In Progress)
+- [x] Admin panel (SQLAdmin)
+- [x] Rate limiting
+- [x] Name popularity data
+- [x] Name facts (etymology, etc.)
+- [ ] Name similarity engine
+- [ ] Email notifications
 
 ---
 
 ## Commands to Start
 
 ```bash
-# Create project structure
-mkdir baby-name-swiper
-cd baby-name-swiper
-mkdir backend frontend data
+# Clone and setup
+git clone <repo-url> hatch
+cd hatch
 
 # Backend setup
 cd backend
 python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
-pip install fastapi uvicorn sqlalchemy alembic \
-    python-jose passlib httpx python-multipart aiosqlite
+pip install -r requirements.txt
 
-# Initialize alembic
-alembic init alembic
+# Run migrations
+alembic upgrade head
 
-# Create data directory
-mkdir data
+# Seed name data
+python -m app.seed.import_names
 
-# Frontend setup
-cd ../frontend
-npx create-next-app@latest . --typescript --tailwind --app --src-dir
-npm install framer-motion next-pwa
-
-# Run backend locally (without Docker)
-cd ../backend
+# Run backend locally
 uvicorn app.main:app --reload
 
-# Run with Docker
+# Frontend setup (in new terminal)
+cd frontend
+npm install
+
+# Run frontend locally
+npm run dev
+
+# Or run both with Docker
 cd ..
 docker-compose up
 ```
@@ -715,11 +886,16 @@ docker-compose up
 
 ### Backend (.env)
 ```env
-DATABASE_URL=sqlite:///./data/baby_names.db
+DATABASE_URL=sqlite+aiosqlite:///./data/hatch.db
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 JWT_SECRET=your-random-secret-key
 FRONTEND_URL=http://localhost:3000
+ADMIN_EMAILS=admin@example.com
+# Optional: Email notifications
+MAIL_USERNAME=your-gmail@gmail.com
+MAIL_PASSWORD=your-app-password
+MAIL_FROM=your-gmail@gmail.com
 ```
 
 ### Frontend (.env.local)
@@ -733,13 +909,13 @@ NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id
 ## Google OAuth Setup
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create new project "Baby Name Swiper"
-3. Enable Google+ API
+2. Create new project "Hatch"
+3. Enable Google+ API (or Google Identity)
 4. Create OAuth 2.0 credentials:
    - Application type: Web application
    - Authorized redirect URIs:
-     - `http://localhost:8000/auth/google/callback` (dev)
-     - `https://your-api.fly.dev/auth/google/callback` (prod)
+     - `http://localhost:8000/api/auth/google/callback` (dev)
+     - `https://hatch-api.fly.dev/api/auth/google/callback` (prod)
 5. Copy Client ID and Client Secret to env vars
 
 ---

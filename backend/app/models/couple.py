@@ -15,6 +15,7 @@ class Couple(Base):
     users = relationship("User", back_populates="couple", foreign_keys="User.couple_id")
     invites = relationship("Invite", back_populates="couple")
     swipes = relationship("Swipe", back_populates="couple")
+    custom_names = relationship("CustomName", back_populates="couple")
 
     def __str__(self):
         if self.users:

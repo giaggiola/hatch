@@ -22,7 +22,7 @@ from google.genai import types
 load_dotenv()
 
 # Paths
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "baby_names.db"
+DB_PATH = Path(__file__).parent.parent.parent / "data" / "hatch.db"
 CSV_PATH = Path(__file__).parent.parent.parent / "data" / "name_facts.csv"
 JSONL_PATH = Path(__file__).parent.parent.parent / "data" / "name_facts_requests.jsonl"
 BATCH_JOB_PATH = Path(__file__).parent.parent.parent / "data" / "batch_job_id.txt"

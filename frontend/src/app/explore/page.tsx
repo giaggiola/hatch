@@ -8,11 +8,14 @@ import BottomNav from '@/components/BottomNav';
 import SearchAutocomplete from '@/components/SearchAutocomplete';
 import PopularNames from '@/components/explore/PopularNames';
 import RegionAccordion from '@/components/explore/RegionAccordion';
+import CreateNameModal from '@/components/CreateNameModal';
 
 export default function ExplorePage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [origins, setOrigins] = useState<Origin[]>([]);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createNameValue, setCreateNameValue] = useState('');
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -34,6 +37,25 @@ export default function ExplorePage() {
     loadData();
   }, [router]);
 
+  const handleCreateName = (name: string) => {
+    setCreateNameValue(name);
+    setShowCreateModal(true);
+  };
+
+  const handleSubmitCustomName = async (data: { name: string; gender: 'M' | 'F' | 'U' }) => {
+    try {
+      const result = await api.createCustomName(data);
+      setShowCreateModal(false);
+      // Navigate to the new custom name or show success
+      if (result?.id) {
+        router.push(`/name/${result.id}`);
+      }
+    } catch (error) {
+      console.error('Error creating custom name:', error);
+      // TODO: Show error toast
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-pink-100 via-purple-50 to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center">
@@ -52,7 +74,7 @@ export default function ExplorePage() {
 
       {/* Search */}
       <div className="px-4 -mt-4 relative z-10">
-        <SearchAutocomplete origins={origins} />
+        <SearchAutocomplete origins={origins} onCreateName={handleCreateName} />
       </div>
 
       {/* Most Popular Names */}
@@ -67,6 +89,14 @@ export default function ExplorePage() {
       <RegionAccordion origins={origins} />
 
       <BottomNav />
+
+      {/* Create Name Modal */}
+      <CreateNameModal
+        isOpen={showCreateModal}
+        initialName={createNameValue}
+        onClose={() => setShowCreateModal(false)}
+        onSubmit={handleSubmitCustomName}
+      />
     </div>
   );
 }

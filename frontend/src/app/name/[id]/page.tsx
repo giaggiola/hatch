@@ -21,6 +21,7 @@ export default function NameDetailPage() {
   const [similarNamesFromOther, setSimilarNamesFromOther] = useState<SimilarName[]>([]);
   const [regionPopularity, setRegionPopularity] = useState<RegionPopularity[]>([]);
   const [facts, setFacts] = useState<NameFacts | null>(null);
+  const [userCountryCodes, setUserCountryCodes] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -36,7 +37,7 @@ export default function NameDetailPage() {
         const [nameData, popularityData, similar, factsData, preferences] = await Promise.all([
           api.getNameDetails(nameId),
           api.getPopularityByRegion(nameId),
-          api.getSimilarNames(nameId, MAX_SIMILAR_COUNT, 0.84, 'same'),
+          api.getSimilarNames(nameId, MAX_SIMILAR_COUNT, 0.80, 'same'),
           api.getNameFacts(nameId),
           api.getPreferences(),
         ]);
@@ -46,8 +47,9 @@ export default function NameDetailPage() {
         setFacts(factsData);
 
         // Convert user's selected origins to country codes
-        const userCountryCodes = originsToCountryCodes(preferences.origins || []);
-        const userCountrySet = new Set(userCountryCodes);
+        const countryCodes = originsToCountryCodes(preferences.origins || []);
+        const userCountrySet = new Set(countryCodes);
+        setUserCountryCodes(userCountrySet);
 
         // Sort alphabetically after fetching top 20 by similarity
         const sortedSimilar = similar
@@ -284,44 +286,68 @@ export default function NameDetailPage() {
         )}
 
         {/* Popularity by Region */}
-        {regionPopularity.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 mb-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-3">Popularity by Region</h2>
-            <div className="space-y-2">
-              {regionPopularity.map((region) => {
-                // Convert percentile to dots (0-5 scale)
-                const getDots = (percentile: number | null): number => {
-                  if (percentile === null) return 0;
-                  if (percentile <= 1) return 5;
-                  if (percentile <= 5) return 4;
-                  if (percentile <= 10) return 3;
-                  if (percentile <= 25) return 2;
-                  if (percentile <= 50) return 1;
-                  return 0;
-                };
-                const dots = getDots(region.percentile);
-                const filledColor = isMale ? 'bg-blue-500' : 'bg-pink-500';
+        {regionPopularity.length > 0 && (() => {
+          // Convert percentile to dots (0-5 scale)
+          const getDots = (percentile: number | null): number => {
+            if (percentile === null) return 0;
+            if (percentile <= 1) return 5;
+            if (percentile <= 5) return 4;
+            if (percentile <= 10) return 3;
+            if (percentile <= 25) return 2;
+            if (percentile <= 50) return 1;
+            return 0;
+          };
 
-                return (
-                  <div
-                    key={region.country_code}
-                    className="flex items-center justify-between py-1.5"
-                  >
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{region.country_name}</span>
-                    <div className="flex gap-1">
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <div
-                          key={i}
-                          className={`w-2 h-2 rounded-full ${i <= dots ? filledColor : 'bg-gray-200 dark:bg-gray-600'}`}
-                        />
-                      ))}
+          // Sort by popularity (lower percentile = more popular)
+          const sortedRegions = [...regionPopularity].sort((a, b) => {
+            const aPercentile = a.percentile ?? 100;
+            const bPercentile = b.percentile ?? 100;
+            return aPercentile - bPercentile;
+          });
+
+          // Split into selected countries and others
+          const selectedCountries = sortedRegions.filter(r => userCountryCodes.has(r.country_code));
+          const otherCountries = sortedRegions.filter(r => !userCountryCodes.has(r.country_code));
+
+          // Show all selected countries + top 3 others
+          const displayRegions = [...selectedCountries, ...otherCountries.slice(0, 3)];
+
+          // Re-sort the combined list by popularity
+          displayRegions.sort((a, b) => {
+            const aPercentile = a.percentile ?? 100;
+            const bPercentile = b.percentile ?? 100;
+            return aPercentile - bPercentile;
+          });
+
+          const filledColor = isMale ? 'bg-blue-500' : 'bg-pink-500';
+
+          return (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 mb-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-3">Popularity by Region</h2>
+              <div className="space-y-2">
+                {displayRegions.map((region) => {
+                  const dots = getDots(region.percentile);
+                  return (
+                    <div
+                      key={region.country_code}
+                      className="flex items-center justify-between py-1.5"
+                    >
+                      <span className="text-sm text-gray-700 dark:text-gray-300">{region.country_name}</span>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <div
+                            key={i}
+                            className={`w-2 h-2 rounded-full ${i <= dots ? filledColor : 'bg-gray-200 dark:bg-gray-600'}`}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Similar Names from Selected Countries */}
         {similarNamesFromSelected.length > 0 && (

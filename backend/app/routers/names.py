@@ -89,14 +89,19 @@ async def batch_fetch_similar_names_data(
             'weighted_count': row[5],
         }
 
-    # Build results in order, preserving similarity scores
+    # Build results in order, preserving similarity scores, deduping by ID
     similar_list = []
+    seen_ids = set()
     for sim in similar_raw:
         if len(similar_list) >= max_results:
             break
         key = (sim['name'], sim['gender'])
         if key in data_map:
             data = data_map[key]
+            # Skip duplicates
+            if data['id'] in seen_ids:
+                continue
+            seen_ids.add(data['id'])
             similar_list.append(SimilarNameResponse(
                 id=data['id'],
                 name=data['name'],

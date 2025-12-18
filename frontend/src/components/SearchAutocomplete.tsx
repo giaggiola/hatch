@@ -9,6 +9,7 @@ import { LikeButton } from './LikeButton';
 interface SearchAutocompleteProps {
   origins: Origin[];
   placeholder?: string;
+  onCreateName?: (name: string) => void;
 }
 
 // Memoized search result item to prevent unnecessary re-renders
@@ -50,7 +51,7 @@ const SearchResultItem = memo(function SearchResultItem({
   );
 });
 
-export default function SearchAutocomplete({ origins, placeholder = 'Search names or countries...' }: SearchAutocompleteProps) {
+export default function SearchAutocomplete({ origins, placeholder = 'Search names or countries...', onCreateName }: SearchAutocompleteProps) {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -131,7 +132,23 @@ export default function SearchAutocomplete({ origins, placeholder = 'Search name
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const totalItems = names.length + filteredOrigins.length;
+  // Check if query exactly matches an existing name (case-insensitive)
+  const hasExactMatch = names.some(n => n.name.toLowerCase() === query.toLowerCase());
+
+  // Show "Create" option when there's a valid query and no exact match
+  const showCreateOption = onCreateName && query.length >= 2 && !isLoading && !hasExactMatch;
+
+  const totalItems = names.length + filteredOrigins.length + (showCreateOption ? 1 : 0);
+
+  const handleCreateClick = useCallback(() => {
+    if (onCreateName && query.trim()) {
+      // Capitalize first letter
+      const formattedName = query.trim().charAt(0).toUpperCase() + query.trim().slice(1).toLowerCase();
+      setIsOpen(false);
+      setQuery('');
+      onCreateName(formattedName);
+    }
+  }, [onCreateName, query]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (!isOpen) return;
@@ -150,8 +167,10 @@ export default function SearchAutocomplete({ origins, placeholder = 'Search name
         if (selectedIndex >= 0) {
           if (selectedIndex < names.length) {
             handleNameClick(names[selectedIndex]);
-          } else {
+          } else if (selectedIndex < names.length + filteredOrigins.length) {
             handleOriginClick(filteredOrigins[selectedIndex - names.length]);
+          } else if (showCreateOption) {
+            handleCreateClick();
           }
         }
         break;
@@ -160,7 +179,7 @@ export default function SearchAutocomplete({ origins, placeholder = 'Search name
         setSelectedIndex(-1);
         break;
     }
-  }, [isOpen, selectedIndex, names, filteredOrigins, totalItems]);
+  }, [isOpen, selectedIndex, names, filteredOrigins, totalItems, showCreateOption, handleCreateClick]);
 
   const handleNameClick = (name: Name) => {
     setIsOpen(false);
@@ -190,7 +209,7 @@ export default function SearchAutocomplete({ origins, placeholder = 'Search name
     }
   };
 
-  const showDropdown = isOpen && query.length > 0 && (names.length > 0 || filteredOrigins.length > 0 || isLoading);
+  const showDropdown = isOpen && query.length > 0 && (names.length > 0 || filteredOrigins.length > 0 || isLoading || showCreateOption);
 
   return (
     <div className="relative">
@@ -270,8 +289,32 @@ export default function SearchAutocomplete({ origins, placeholder = 'Search name
             </div>
           )}
 
-          {/* No results */}
-          {!isLoading && names.length === 0 && filteredOrigins.length === 0 && query.length >= 2 && (
+          {/* Create option */}
+          {showCreateOption && (
+            <div>
+              {(names.length > 0 || filteredOrigins.length > 0) && (
+                <div className="h-px bg-gray-100 dark:bg-gray-700" />
+              )}
+              <button
+                onClick={handleCreateClick}
+                className={`w-full px-4 py-3 flex items-center gap-3 hover:bg-pink-50 dark:hover:bg-pink-900/30 transition-colors ${
+                  selectedIndex === names.length + filteredOrigins.length ? 'bg-pink-50 dark:bg-pink-900/30' : ''
+                }`}
+              >
+                <span className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center text-white">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </span>
+                <span className="font-medium text-gray-900 dark:text-white">
+                  Create "<span className="text-pink-600 dark:text-pink-400">{query.trim().charAt(0).toUpperCase() + query.trim().slice(1).toLowerCase()}</span>"
+                </span>
+              </button>
+            </div>
+          )}
+
+          {/* No results and no create option */}
+          {!isLoading && names.length === 0 && filteredOrigins.length === 0 && query.length >= 2 && !showCreateOption && (
             <div className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
               No results found
             </div>

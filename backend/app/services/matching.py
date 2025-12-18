@@ -44,8 +44,6 @@ async def get_matches(
             n.gender,
             n.meaning,
             n.length,
-            n.group_id,
-            n.is_primary,
             GROUP_CONCAT(DISTINCT np.country_code) as countries,
             MIN(np.popularity_rank) as best_rank,
             SUM(np.weighted_count) as total_weight,
@@ -79,11 +77,107 @@ async def get_matches(
             "gender": row.gender,
             "meaning": row.meaning,
             "length": row.length,
-            "group_id": row.group_id,
-            "is_primary": row.is_primary,
             "countries": countries,
             "popularity_rank": row.best_rank,
             "weighted_count": row.total_weight,
             "matched_at": row.matched_at,
         })
     return matches
+
+
+async def get_close_calls(
+    db: AsyncSession,
+    couple_id: str,
+    current_user_id: str,
+    limit: int = 20,
+    min_similarity: float = 0.75,
+) -> List[Dict]:
+    """Find close calls - names where partners liked SIMILAR (but not same) names.
+
+    For example, if you liked "Maria" and partner liked "Maria del Carmen",
+    these are similar names and count as a close call.
+
+    Uses pre-computed similarities from name_similarities table.
+    """
+    # Find pairs where:
+    # - User A liked name X
+    # - User B liked name Y
+    # - X and Y are similar (via name_similarities table)
+    # - X and Y are different names
+    # - Neither X nor Y is an exact match (both partners liked same name)
+    query = text("""
+        WITH user_likes AS (
+            SELECT name_id FROM swipes
+            WHERE couple_id = :couple_id
+              AND user_id = :current_user_id
+              AND action = 'like'
+        ),
+        partner_likes AS (
+            SELECT name_id FROM swipes
+            WHERE couple_id = :couple_id
+              AND user_id != :current_user_id
+              AND action = 'like'
+        ),
+        exact_matches AS (
+            -- Names that BOTH partners liked (these are full matches, not close calls)
+            SELECT ul.name_id
+            FROM user_likes ul
+            INNER JOIN partner_likes pl ON ul.name_id = pl.name_id
+        )
+        SELECT
+            ns.similarity,
+            -- Your liked name
+            n1.id as your_name_id,
+            n1.name as your_name,
+            n1.gender as your_gender,
+            -- Partner's liked name
+            n2.id as partner_name_id,
+            n2.name as partner_name,
+            n2.gender as partner_gender,
+            -- Countries for partner's name (the one you might want to reconsider)
+            GROUP_CONCAT(DISTINCT np.country_code) as partner_countries
+        FROM name_similarities ns
+        INNER JOIN user_likes ul ON ns.name_id = ul.name_id
+        INNER JOIN partner_likes pl ON ns.similar_name_id = pl.name_id
+        INNER JOIN names n1 ON ns.name_id = n1.id
+        INNER JOIN names n2 ON ns.similar_name_id = n2.id
+        LEFT JOIN name_popularity np ON n2.id = np.name_id
+        WHERE ns.similarity >= :min_similarity
+          AND ns.name_id != ns.similar_name_id
+          -- Exclude names that are already exact matches
+          AND ns.name_id NOT IN (SELECT name_id FROM exact_matches)
+          AND ns.similar_name_id NOT IN (SELECT name_id FROM exact_matches)
+        GROUP BY ns.name_id, ns.similar_name_id
+        ORDER BY ns.similarity DESC
+        LIMIT :limit
+    """)
+
+    result = await db.execute(
+        query,
+        {
+            "couple_id": couple_id,
+            "current_user_id": current_user_id,
+            "min_similarity": min_similarity,
+            "limit": limit,
+        }
+    )
+
+    rows = result.fetchall()
+    close_calls = []
+    for row in rows:
+        partner_countries = row.partner_countries.split(',') if row.partner_countries else []
+        close_calls.append({
+            "similarity": row.similarity,
+            "your_name": {
+                "id": row.your_name_id,
+                "name": row.your_name,
+                "gender": row.your_gender,
+            },
+            "partner_name": {
+                "id": row.partner_name_id,
+                "name": row.partner_name,
+                "gender": row.partner_gender,
+                "countries": partner_countries,
+            },
+        })
+    return close_calls

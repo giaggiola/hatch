@@ -176,23 +176,82 @@ async def find_similar_names(
     gender: Optional[str] = None
 ) -> List[Dict]:
     """
-    Find the most similar names to the given name using multi-aspect embeddings.
+    Find the most similar names using pre-computed similarities from database.
 
-    Uses weighted combination of:
-    - Phonetic similarity (40%): How similar the names sound
-    - Etymology similarity (60%): Similar meaning/origin
+    Falls back to on-the-fly computation if pre-computed data is not available.
 
     Args:
         db: Database session
         name: The name to find similarities for
         top_k: Maximum number of results to return
-        min_similarity: Minimum similarity threshold (0.84 filters out loosely related names)
+        min_similarity: Minimum similarity threshold
         exclude_self: Whether to exclude the exact same name
         gender: Optional gender filter (M, F, or U) - only return names with this gender
 
     Returns:
         List of dicts with 'name', 'gender', 'similarity' keys, sorted by similarity
     """
+    # Try pre-computed similarities first (fast path)
+    results = await _find_similar_precomputed(db, name, top_k, min_similarity, gender)
+    if results is not None:
+        return results
+
+    # Fall back to on-the-fly computation
+    return await _find_similar_compute(db, name, top_k, min_similarity, exclude_self, gender)
+
+
+async def _find_similar_precomputed(
+    db: AsyncSession,
+    name: str,
+    top_k: int,
+    min_similarity: float,
+    gender: Optional[str]
+) -> Optional[List[Dict]]:
+    """Look up pre-computed similar names from database."""
+    # Build query with optional gender filter
+    gender_filter = ""
+    if gender:
+        gender_filter = "AND n2.gender = :gender"
+
+    query = text(f"""
+        SELECT n2.name, n2.gender, ns.similarity
+        FROM name_similarities ns
+        JOIN names n1 ON ns.name_id = n1.id
+        JOIN names n2 ON ns.similar_name_id = n2.id
+        WHERE n1.name = :name
+          AND ns.similarity >= :min_similarity
+          {gender_filter}
+        ORDER BY ns.rank
+        LIMIT :limit
+    """)
+
+    params = {"name": name, "min_similarity": min_similarity, "limit": top_k}
+    if gender:
+        params["gender"] = gender
+
+    result = await db.execute(query, params)
+    rows = result.fetchall()
+
+    # Return empty list if no pre-computed data
+    # (avoid fallback to on-the-fly computation which loads ALL embeddings into memory)
+    if not rows:
+        return []
+
+    return [
+        {"name": row[0], "gender": row[1], "similarity": round(row[2], 3)}
+        for row in rows
+    ]
+
+
+async def _find_similar_compute(
+    db: AsyncSession,
+    name: str,
+    top_k: int,
+    min_similarity: float,
+    exclude_self: bool,
+    gender: Optional[str]
+) -> List[Dict]:
+    """Compute similar names on-the-fly using embeddings (fallback)."""
     phonetic_embeddings, etymology_embeddings, name_data = await _load_embeddings(db)
 
     if name not in name_data:
