@@ -1,10 +1,14 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 class ApiClient {
-  private baseUrl: string;
+  private proxyUrl: string;
+  private backendUrl: string;
 
-  constructor(baseUrl: string) {
-    this.baseUrl = `${baseUrl}/api`;
+  constructor(backendUrl: string) {
+    // Use same-origin proxy for API calls (avoids cross-site cookie issues on mobile)
+    this.proxyUrl = '/api/proxy';
+    // Direct backend URL only for OAuth redirect (which needs to go through backend)
+    this.backendUrl = `${backendUrl}/api`;
   }
 
   private async request<T>(
@@ -17,10 +21,10 @@ class ApiClient {
       ...options.headers,
     };
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+    const response = await fetch(`${this.proxyUrl}${endpoint}`, {
       ...options,
       headers,
-      credentials: 'include',  // Send httpOnly cookies
+      credentials: 'include', // Send same-origin httpOnly cookie
     });
 
     if (response.status === 401) {
@@ -43,15 +47,18 @@ class ApiClient {
     return response.json();
   }
 
-  // Logout - calls backend to clear cookie
+  // Logout - clears same-origin cookie and calls backend
   async logout() {
-    await this.request('/auth/logout', { method: 'POST' });
+    // Clear the same-origin cookie
+    await fetch('/api/auth/session', { method: 'DELETE' });
+    // Notify backend (optional, for any server-side cleanup)
+    await this.request('/auth/logout', { method: 'POST' }).catch(() => {});
     window.location.href = '/';
   }
 
-  // Auth
+  // Auth - OAuth URL goes directly to backend for the redirect flow
   getGoogleAuthUrl() {
-    return `${this.baseUrl}/auth/google`;
+    return `${this.backendUrl}/auth/google`;
   }
 
   async getMe(skipRedirectOn401 = false) {
@@ -231,7 +238,7 @@ class ApiClient {
   }
 }
 
-export const api = new ApiClient(API_URL);
+export const api = new ApiClient(BACKEND_URL);
 
 // Types
 export interface User {
