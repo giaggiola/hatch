@@ -409,7 +409,11 @@ async def search_names(
         countries = row[1].split(',') if row[1] else []
         names.append(build_name_response(name, countries, row[2], row[3]))
 
-    return names
+    # Search results are deterministic for same query - cache for 5 min
+    return JSONResponse(
+        content=[n.model_dump() for n in names],
+        headers={"Cache-Control": f"public, max-age={CACHE_DURATION_SEMI_STATIC}"}
+    )
 
 
 @router.get("/popular")
@@ -444,7 +448,11 @@ async def get_popular_names(
         countries = row[1].split(',') if row[1] else []
         names.append(build_name_response(name, countries, row[2], row[3]))
 
-    return names
+    # Popular names are static - cache for 1 hour
+    return JSONResponse(
+        content=[n.model_dump() for n in names],
+        headers={"Cache-Control": f"public, max-age={CACHE_DURATION_STATIC}"}
+    )
 
 
 @router.get("/by-origin/{origin}")
@@ -486,7 +494,11 @@ async def get_names_by_origin(
         countries = [country_code]  # We filtered by this country
         names.append(build_name_response(name, countries, row[2], row[3]))
 
-    return names
+    # Names by origin are static - cache for 1 hour
+    return JSONResponse(
+        content=[n.model_dump() for n in names],
+        headers={"Cache-Control": f"public, max-age={CACHE_DURATION_STATIC}"}
+    )
 
 
 @router.get("/{name_id}/facts", response_model=NameFactsResponse)
@@ -526,7 +538,7 @@ async def get_name_facts(
         cultural_references_raw = {}
 
     # Build response with parsed data
-    return NameFactsResponse(
+    response = NameFactsResponse(
         origin_language=facts.origin_language,
         meaning=facts.meaning,
         nicknames=nicknames,
@@ -547,6 +559,12 @@ async def get_name_facts(
             mythological=cultural_references_raw.get('mythological'),
             literary=cultural_references_raw.get('literary'),
         ) if cultural_references_raw else None,
+    )
+
+    # Facts are static - cache for 1 hour
+    return JSONResponse(
+        content=response.model_dump(),
+        headers={"Cache-Control": f"public, max-age={CACHE_DURATION_STATIC}"}
     )
 
 
@@ -601,7 +619,11 @@ async def get_name_popularity_by_region(
             "weighted_count": entry.weighted_count,
         })
 
-    return regions_data
+    # Popularity data is static - cache for 1 hour
+    return JSONResponse(
+        content=regions_data,
+        headers={"Cache-Control": f"public, max-age={CACHE_DURATION_STATIC}"}
+    )
 
 
 @router.get("/{name_id}", response_model=NameResponse)

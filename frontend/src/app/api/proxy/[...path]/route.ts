@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const COOKIE_NAME = 'auth_token';
 
+// Headers to forward from backend to client (for caching)
+const CACHE_HEADERS = ['cache-control', 'etag', 'last-modified', 'vary'];
+
 async function proxyRequest(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -58,15 +61,33 @@ async function proxyRequest(
       data = await response.text();
     }
 
-    // Return response with same status
+    // Build response headers - forward cache headers from backend
+    const responseHeaders: Record<string, string> = {};
+
+    if (contentType) {
+      responseHeaders['Content-Type'] = contentType;
+    }
+
+    // Forward cache-related headers from backend
+    for (const header of CACHE_HEADERS) {
+      const value = response.headers.get(header);
+      if (value) {
+        responseHeaders[header] = value;
+      }
+    }
+
+    // Return response with same status and forwarded headers
     if (typeof data === 'string') {
       return new NextResponse(data, {
         status: response.status,
-        headers: { 'Content-Type': contentType || 'text/plain' },
+        headers: responseHeaders,
       });
     }
 
-    return NextResponse.json(data, { status: response.status });
+    return NextResponse.json(data, {
+      status: response.status,
+      headers: responseHeaders,
+    });
   } catch (error) {
     console.error('Proxy error:', error);
     return NextResponse.json(
