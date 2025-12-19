@@ -146,7 +146,7 @@ export default function InviteShareModal({ code, onClose }: InviteShareModalProp
                   setEmailError('');
                 }}
                 placeholder="partner@email.com"
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
               <button
                 onClick={handleSendEmail}
