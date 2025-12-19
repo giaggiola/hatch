@@ -15,6 +15,7 @@ import {
   initializeSelections,
 } from '@/hooks/useSwipeState';
 import AppShell from '@/components/AppShell';
+import BottomNav from '@/components/BottomNav';
 import MatchModal from '@/components/MatchModal';
 import { LoadingPage } from '@/components/LoadingSpinner';
 
@@ -246,7 +247,7 @@ export default function SwipePage() {
   }
 
   return (
-    <AppShell fillHeight className="bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+    <AppShell fillHeight showNav={false} className="bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 no-overscroll">
       {/* First-time Hint - centered on screen */}
       {showHint && currentIndex === 0 && names.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none">
@@ -270,14 +271,9 @@ export default function SwipePage() {
         </div>
       )}
 
-      {/* Top Bar */}
-      <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-center">
-        <div className="text-xl font-semibold text-gray-800 dark:text-white">NameMatch</div>
-      </div>
-
       {/* Swipe Error Banner */}
       {swipeError && (
-        <div className="mx-4 mb-2 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 px-4 py-2 rounded-lg text-sm text-center">
+        <div className="mx-4 mt-2 bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 px-4 py-2 rounded-lg text-sm text-center">
           {swipeError}
         </div>
       )}
@@ -316,32 +312,35 @@ export default function SwipePage() {
         )}
       </div>
 
-      {/* Action Buttons */}
-      {currentIndex < names.length && (
-        <div className="py-4 flex justify-center items-center gap-6">
-          <button
-            onClick={() => handleSwipe('left')}
-            className="bg-white dark:bg-gray-700 p-5 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-110 active:scale-95"
-          >
-            <X className="w-8 h-8 text-red-500" />
-          </button>
+      {/* Action Buttons + Bottom Nav */}
+      <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700">
+        {currentIndex < names.length && (
+          <div className="py-3 flex justify-center items-center gap-6">
+            <button
+              onClick={() => handleSwipe('left')}
+              className="bg-white dark:bg-gray-700 p-4 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-110 active:scale-95"
+            >
+              <X className="w-7 h-7 text-red-500" />
+            </button>
 
-          <button
-            onClick={handleUndo}
-            disabled={swipeHistory.length === 0}
-            className="bg-white dark:bg-gray-700 p-4 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RotateCcw className="w-6 h-6 text-gray-500 dark:text-gray-400" />
-          </button>
+            <button
+              onClick={handleUndo}
+              disabled={swipeHistory.length === 0}
+              className="bg-white dark:bg-gray-700 p-3 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RotateCcw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </button>
 
-          <button
-            onClick={() => handleSwipe('right')}
-            className="bg-white dark:bg-gray-700 p-5 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-110 active:scale-95"
-          >
-            <Heart className="w-8 h-8 text-pink-500 fill-pink-500" />
-          </button>
-        </div>
-      )}
+            <button
+              onClick={() => handleSwipe('right')}
+              className="bg-white dark:bg-gray-700 p-4 rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-110 active:scale-95"
+            >
+              <Heart className="w-7 h-7 text-pink-500 fill-pink-500" />
+            </button>
+          </div>
+        )}
+        <BottomNav inline />
+      </div>
 
       {/* Match Modal */}
       <MatchModal

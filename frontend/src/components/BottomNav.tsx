@@ -10,12 +10,16 @@ const navItems = [
   { href: '/settings', icon: '⚙️', label: 'Settings' },
 ];
 
-export default function BottomNav() {
+interface BottomNavProps {
+  inline?: boolean;
+}
+
+export default function BottomNav({ inline = false }: BottomNavProps) {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 safe-bottom">
-      <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
+    <nav className={`${inline ? '' : 'fixed bottom-0 left-0 right-0'} bg-white dark:bg-gray-800 ${inline ? '' : 'border-t border-gray-200 dark:border-gray-700'} pb-safe`}>
+      <div className="flex justify-around items-center h-14 max-w-lg mx-auto">
         {navItems.map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (

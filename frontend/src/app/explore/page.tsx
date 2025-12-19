@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, Origin } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-import BottomNav from '@/components/BottomNav';
+import AppShell from '@/components/AppShell';
 import SearchAutocomplete from '@/components/SearchAutocomplete';
 import PopularNames from '@/components/explore/PopularNames';
 import RegionAccordion from '@/components/explore/RegionAccordion';
@@ -65,7 +65,7 @@ export default function ExplorePage() {
   }
 
   return (
-    <div className="min-h-screen pb-20 bg-gradient-to-br from-pink-100 via-purple-50 to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+    <AppShell className="bg-gradient-to-br from-pink-100 via-purple-50 to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Header */}
       <div className="bg-gradient-to-br from-pink-500 to-rose-600 text-white px-6 pt-8 pb-6">
         <h1 className="text-2xl font-medium mb-1">Explore</h1>
@@ -88,8 +88,6 @@ export default function ExplorePage() {
       {/* Regions */}
       <RegionAccordion origins={origins} />
 
-      <BottomNav />
-
       {/* Create Name Modal */}
       <CreateNameModal
         isOpen={showCreateModal}
@@ -97,6 +95,6 @@ export default function ExplorePage() {
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleSubmitCustomName}
       />
-    </div>
+    </AppShell>
   );
 }

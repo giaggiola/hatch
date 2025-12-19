@@ -3,6 +3,7 @@
   "short_name": "Hatch",
   "description": "Swipe on baby names with your partner. When you both like the same name, it's a match!",
   "start_url": "/swipe",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#fff5fb",
   "theme_color": "#ec4899",

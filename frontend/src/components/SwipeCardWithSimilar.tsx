@@ -1,6 +1,7 @@
 'use client';
 
-import { motion, useMotionValue, useTransform, PanInfo } from 'framer-motion';
+import { useState } from 'react';
+import { motion, useMotionValue, useTransform, PanInfo, useAnimation } from 'framer-motion';
 import { Volume2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { NameWithSimilar } from '@/lib/api';
@@ -21,19 +22,34 @@ export default function SwipeCardWithSimilar({
   onExploreMore,
 }: SwipeCardWithSimilarProps) {
   const router = useRouter();
+  const controls = useAnimation();
+  const [isExiting, setIsExiting] = useState(false);
   const x = useMotionValue(0);
-  const rotate = useTransform(x, [-200, 200], [-25, 25]);
-  const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0.5, 1, 1, 1, 0.5]);
+  const rotate = useTransform(x, [-200, 200], [-15, 15]);
+  const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0.7, 1, 1, 1, 0.7]);
 
-  const likeOpacity = useTransform(x, [0, 100], [0, 1]);
-  const nopeOpacity = useTransform(x, [-100, 0], [1, 0]);
+  const likeOpacity = useTransform(x, [0, 80], [0, 1]);
+  const nopeOpacity = useTransform(x, [-80, 0], [1, 0]);
 
-  const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    const threshold = 100;
-    if (info.offset.x > threshold) {
+  const handleDragEnd = async (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (isExiting) return;
+
+    const threshold = 80;
+    const velocity = info.velocity.x;
+    const offset = info.offset.x;
+
+    // Trigger swipe if offset exceeds threshold OR if velocity is high enough
+    if (offset > threshold || velocity > 500) {
+      setIsExiting(true);
+      await controls.start({ x: 400, opacity: 0, transition: { duration: 0.3 } });
       onSwipe('right');
-    } else if (info.offset.x < -threshold) {
+    } else if (offset < -threshold || velocity < -500) {
+      setIsExiting(true);
+      await controls.start({ x: -400, opacity: 0, transition: { duration: 0.3 } });
       onSwipe('left');
+    } else {
+      // Snap back to center with spring animation
+      controls.start({ x: 0, transition: { type: 'spring', stiffness: 500, damping: 30 } });
     }
   };
 
@@ -63,11 +79,15 @@ export default function SwipeCardWithSimilar({
 
   return (
     <motion.div
-      className="w-full cursor-grab active:cursor-grabbing"
+      className="w-full cursor-grab active:cursor-grabbing touch-pan-y"
       style={{ x, rotate, opacity }}
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={0.7}
+      dragDirectionLock
       onDragEnd={handleDragEnd}
+      animate={controls}
+      whileTap={{ cursor: 'grabbing' }}
     >
       <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl overflow-hidden mx-4 no-select relative">
         {/* Like/Nope indicators */}
