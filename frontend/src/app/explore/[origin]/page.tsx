@@ -34,7 +34,7 @@ const NameCard = memo(function NameCard({
           className="cursor-pointer hover:opacity-70 transition-opacity"
         >
           <div className="text-xl text-gray-900 dark:text-white font-medium">{name.name}</div>
-          <div className={`text-xs px-2 py-0.5 rounded-full inline-block mt-1 ${
+          <div className={`text-[10px] px-1.5 py-0.5 rounded-full inline-block mt-1 ${
             name.gender === 'M'
               ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
               : name.gender === 'F'
@@ -96,7 +96,7 @@ export default function OriginDetailPage() {
   const [names, setNames] = useState<Name[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [swipedNames, setSwipedNames] = useState<Map<string, 'like' | 'dismiss'>>(new Map());
-  const [filter, setFilter] = useState<'all' | 'M' | 'F' | 'U'>('all');
+  const [filter, setFilter] = useState<'all' | 'M' | 'F'>('all');
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Load initial data
@@ -175,21 +175,20 @@ export default function OriginDetailPage() {
     router.push(`/name/${id}`);
   }, [router]);
 
-  const filteredNames = names.filter(name => filter === 'all' || name.gender === filter);
+  const filteredNames = names.filter(name => {
+    if (filter === 'all') return true;
+    return name.gender === filter;
+  });
 
   const genderCounts = {
-    all: names.length,
     M: names.filter(n => n.gender === 'M').length,
     F: names.filter(n => n.gender === 'F').length,
-    U: names.filter(n => n.gender === 'U').length,
   };
 
   const likedCount = Array.from(swipedNames.values()).filter(v => v === 'like').length;
 
-  // Only show filters that have names
-  const availableFilters = (['all', 'M', 'F', 'U'] as const).filter(
-    g => g === 'all' || genderCounts[g] > 0
-  );
+  // Show filters only if we have both boys and girls
+  const hasBothGenders = genderCounts.M > 0 && genderCounts.F > 0;
 
   if (isLoading) {
     return (
@@ -212,8 +211,7 @@ export default function OriginDetailPage() {
           </svg>
           <span>Back</span>
         </button>
-        <h1 className="text-3xl font-medium capitalize mb-1">{decodeURIComponent(origin)}</h1>
-        <p className="text-white/80">{names.length}{hasMore ? '+' : ''} names to explore</p>
+        <h1 className="text-3xl font-medium capitalize text-center">{decodeURIComponent(origin)}</h1>
         {likedCount > 0 && (
           <div className="mt-3 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full inline-block text-sm">
             {likedCount} name{likedCount !== 1 ? 's' : ''} liked
@@ -222,24 +220,28 @@ export default function OriginDetailPage() {
       </div>
 
       {/* Filters */}
-      {availableFilters.length > 2 && (
-        <div className="px-4 py-4 flex gap-2">
-          {availableFilters.map((g) => (
-            <button
-              key={g}
-              onClick={() => setFilter(g)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                filter === g
-                  ? 'bg-pink-500 text-white shadow-lg'
-                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow hover:shadow-md'
-              }`}
-            >
-              {g === 'all' ? 'All' : g === 'M' ? 'Boys' : g === 'F' ? 'Girls' : 'Unisex'}
-              <span className={`ml-1.5 ${filter === g ? 'text-white/70' : 'text-gray-400'}`}>
-                {genderCounts[g]}
-              </span>
-            </button>
-          ))}
+      {hasBothGenders && (
+        <div className="px-4 py-4 flex gap-2 justify-center">
+          <button
+            onClick={() => setFilter(filter === 'M' ? 'all' : 'M')}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+              filter === 'M'
+                ? 'bg-blue-500 text-white shadow-lg'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow hover:shadow-md'
+            }`}
+          >
+            Boys
+          </button>
+          <button
+            onClick={() => setFilter(filter === 'F' ? 'all' : 'F')}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+              filter === 'F'
+                ? 'bg-pink-500 text-white shadow-lg'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 shadow hover:shadow-md'
+            }`}
+          >
+            Girls
+          </button>
         </div>
       )}
 

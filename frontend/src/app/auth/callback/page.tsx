@@ -29,9 +29,17 @@ function AuthCallbackContent() {
         });
 
         if (response.ok) {
-          // Cookie set successfully - mark as authenticated and redirect
+          // Cookie set successfully - mark as authenticated
           setAuthenticated();
-          router.push('/swipe');
+
+          // Check for a stored redirect URL (e.g., from invite flow)
+          const redirectUrl = localStorage.getItem('auth_redirect');
+          if (redirectUrl) {
+            localStorage.removeItem('auth_redirect');
+            router.push(redirectUrl);
+          } else {
+            router.push('/swipe');
+          }
         } else {
           // Failed to set cookie
           router.push('/');

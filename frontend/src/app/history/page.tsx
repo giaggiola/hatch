@@ -5,10 +5,16 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, Swipe, Match, CloseCall } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-import { formatCountries } from '@/lib/countries';
 import BottomNav from '@/components/BottomNav';
 
 type Tab = 'likes' | 'dismisses' | 'matches';
+
+// Gender color helper - matches mobile implementation
+const getGenderColor = (gender?: 'M' | 'F' | 'U') => {
+  if (gender === 'M') return 'bg-blue-500';
+  if (gender === 'F') return 'bg-pink-500';
+  return 'bg-purple-500';
+};
 
 export default function HistoryPage() {
   const router = useRouter();
@@ -225,15 +231,25 @@ export default function HistoryPage() {
                 <Link
                   key={match.id}
                   href={`/name/${match.id}`}
-                  className="flex items-center justify-between bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl px-4 py-3 shadow-sm hover:bg-white dark:hover:bg-gray-700 transition-all hover:shadow-md"
+                  className="flex items-center justify-between bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl px-4 py-3 shadow-sm hover:bg-white dark:hover:bg-gray-700 transition-all hover:shadow-md border-2 border-pink-200 dark:border-pink-800"
                 >
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-medium text-gray-900 dark:text-white">{match.name}</span>
-                    <span className="text-xs text-gray-400">{formatCountries(match.countries || [])}</span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900 dark:text-white">{match.name}</span>
+                      <span className={`w-2 h-2 rounded-full ${getGenderColor(match.gender)}`} />
+                    </div>
+                    {match.meaning && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{match.meaning}</p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Matched {new Date(match.matched_at).toLocaleDateString()}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-pink-500 dark:text-pink-400 font-medium">Match!</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-pink-400" viewBox="0 0 20 20" fill="currentColor">
+                  <div className="flex items-center gap-1 ml-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-pink-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-pink-400" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
                     </svg>
                   </div>
@@ -263,10 +279,15 @@ export default function HistoryPage() {
                 >
                   <Link
                     href={`/name/${name.id}`}
-                    className="flex items-baseline gap-2 hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex-1"
+                    className="hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex-1"
                   >
-                    <span className="font-medium text-gray-900 dark:text-white">{name.name}</span>
-                    <span className="text-xs text-gray-400">{formatCountries(name.countries || [])}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900 dark:text-white">{name.name}</span>
+                      <span className={`w-2 h-2 rounded-full ${getGenderColor(name.gender)}`} />
+                    </div>
+                    {name.meaning && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{name.meaning}</p>
+                    )}
                   </Link>
                   <button
                     onClick={() => handleChangeSwipe(name.id, 'dismiss')}
@@ -308,10 +329,15 @@ export default function HistoryPage() {
                 >
                   <Link
                     href={`/name/${name.id}`}
-                    className="flex items-baseline gap-2 hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex-1"
+                    className="hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex-1"
                   >
-                    <span className="font-medium text-gray-900 dark:text-white">{name.name}</span>
-                    <span className="text-xs text-gray-400">{formatCountries(name.countries || [])}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900 dark:text-white">{name.name}</span>
+                      <span className={`w-2 h-2 rounded-full ${getGenderColor(name.gender)}`} />
+                    </div>
+                    {name.meaning && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{name.meaning}</p>
+                    )}
                   </Link>
                   <button
                     onClick={() => handleChangeSwipe(name.id, 'like')}

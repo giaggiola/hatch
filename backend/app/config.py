@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     jwt_secret: str = "change-me-in-production"
+    debug: bool = False  # Enable dev features like dev login
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
     frontend_url: str = "http://localhost:3000"

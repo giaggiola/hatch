@@ -24,6 +24,9 @@ export default function InvitePage() {
         // If already authenticated, try to accept
         if (isAuthenticated()) {
           await handleAccept();
+        } else {
+          // Store the invite URL so we can return here after OAuth login
+          localStorage.setItem('auth_redirect', `/invite/${code}`);
         }
       } catch (error) {
         setError('Invite not found or expired');

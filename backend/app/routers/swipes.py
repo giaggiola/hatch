@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from app.database import get_db
 from app.routers.auth import get_current_user
 from app.schemas.swipe import (
@@ -112,8 +112,16 @@ async def create_batch_swipes(
     if not batch_data.swipes:
         raise HTTPException(status_code=400, detail="No swipes provided")
 
+    # Dedupe incoming swipes - keep first occurrence of each name_id
+    seen_ids = set()
+    deduped_swipes = []
+    for s in batch_data.swipes:
+        if s.name_id not in seen_ids:
+            seen_ids.add(s.name_id)
+            deduped_swipes.append(s)
+
     # Get all name_ids to process
-    name_ids = [s.name_id for s in batch_data.swipes]
+    name_ids = [s.name_id for s in deduped_swipes]
 
     # Verify all names exist
     names_result = await db.execute(select(Name).where(Name.id.in_(name_ids)))
@@ -136,9 +144,12 @@ async def create_batch_swipes(
     created_count = 0
     matches = []
 
-    for swipe_data in batch_data.swipes:
+    for swipe_data in deduped_swipes:
         if swipe_data.name_id in already_swiped:
             continue  # Skip already swiped
+
+        # Mark as swiped immediately to prevent duplicates within this batch
+        already_swiped.add(swipe_data.name_id)
 
         swipe = Swipe(
             user_id=current_user.id,
@@ -160,7 +171,51 @@ async def create_batch_swipes(
             if is_match:
                 matches.append(NameResponse.model_validate(names[swipe_data.name_id]))
 
-    await db.commit()
+    # Use try/except to handle race conditions when swiping fast
+    try:
+        await db.commit()
+    except Exception:
+        # If we hit a unique constraint, rollback and try one-by-one
+        await db.rollback()
+        created_count = 0
+        matches = []
+
+        for swipe_data in deduped_swipes:
+            # Check if already exists
+            existing = await db.execute(
+                select(Swipe).where(
+                    Swipe.user_id == current_user.id,
+                    Swipe.name_id == swipe_data.name_id,
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
+
+            swipe = Swipe(
+                user_id=current_user.id,
+                name_id=swipe_data.name_id,
+                couple_id=current_user.couple_id,
+                action=swipe_data.action,
+            )
+            db.add(swipe)
+            try:
+                await db.flush()
+                created_count += 1
+
+                if swipe_data.action == "like" and current_user.couple_id:
+                    is_match = await check_for_match(
+                        db=db,
+                        couple_id=current_user.couple_id,
+                        name_id=swipe_data.name_id,
+                        current_user_id=current_user.id,
+                    )
+                    if is_match:
+                        matches.append(NameResponse.model_validate(names[swipe_data.name_id]))
+            except Exception:
+                await db.rollback()
+                continue
+
+        await db.commit()
 
     return BatchSwipeResultResponse(
         created=created_count,
@@ -204,6 +259,34 @@ async def get_swipes(
     ]
 
     return responses
+
+
+@router.get("/counts")
+async def get_swipe_counts(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get total counts for likes and dismisses."""
+    likes_result = await db.execute(
+        select(func.count()).where(
+            Swipe.user_id == current_user.id,
+            Swipe.action == "like",
+        )
+    )
+    likes_count = likes_result.scalar() or 0
+
+    dismisses_result = await db.execute(
+        select(func.count()).where(
+            Swipe.user_id == current_user.id,
+            Swipe.action == "dismiss",
+        )
+    )
+    dismisses_count = dismisses_result.scalar() or 0
+
+    return {
+        "likes": likes_count,
+        "dismisses": dismisses_count,
+    }
 
 
 @router.patch("/{name_id}", response_model=SwipeResultResponse)

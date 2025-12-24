@@ -2,11 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from authlib.integrations.starlette_client import OAuth
+from pydantic import BaseModel
+import httpx
 from app.database import get_db
 from app.config import get_settings
 from app.services.auth import create_access_token, get_or_create_user, decode_access_token, get_user_by_id
 from app.schemas.user import UserResponse
 from app.rate_limiter import limiter, RATE_LIMIT_AUTH
+
+
+class MobileAuthRequest(BaseModel):
+    access_token: str
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -124,3 +130,68 @@ async def get_me(current_user=Depends(get_current_user)):
 async def logout():
     """Logout endpoint - frontend handles clearing its own cookie"""
     return {"message": "Logged out successfully"}
+
+
+@router.post("/dev-login")
+async def dev_login(db: AsyncSession = Depends(get_db)):
+    """
+    Dev login endpoint for simulator testing.
+    Only available when DEBUG=true.
+    Creates or returns a test user.
+    """
+    if not settings.debug:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Create or get a dev test user
+    user = await get_or_create_user(
+        db=db,
+        google_id="dev-test-user-12345",
+        email="dev@test.local",
+        display_name="Dev Tester",
+        avatar_url=None,
+    )
+
+    access_token = create_access_token(data={"sub": user.id})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/google/mobile")
+@limiter.limit(RATE_LIMIT_AUTH)
+async def google_mobile_auth(
+    request: Request,
+    body: MobileAuthRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Mobile OAuth endpoint.
+    Accepts a Google access token from mobile app, verifies it,
+    and returns a JWT for the app to store.
+    """
+    try:
+        # Verify the Google access token by fetching user info
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {body.access_token}"}
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid Google token")
+
+            user_info = response.json()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to verify token: {str(e)}")
+
+    # Get or create user
+    user = await get_or_create_user(
+        db=db,
+        google_id=user_info["sub"],
+        email=user_info["email"],
+        display_name=user_info.get("name"),
+        avatar_url=user_info.get("picture"),
+    )
+
+    # Create JWT
+    access_token = create_access_token(data={"sub": user.id})
+
+    return {"access_token": access_token, "token_type": "bearer"}

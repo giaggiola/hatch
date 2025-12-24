@@ -196,11 +196,20 @@ export default function SwipePage() {
     if (swipeHistory.length === 0 || currentIndex === 0) return;
 
     const lastAction = swipeHistory[swipeHistory.length - 1];
+    const prevName = names[lastAction.index];
+
+    // Delete the swipes from backend (main name + all similar variants)
+    if (prevName) {
+      api.deleteSwipe(prevName.id).catch(console.error);
+      prevName.similar.forEach((variant) => {
+        api.deleteSwipe(variant.id).catch(console.error);
+      });
+    }
+
+    // Restore local state
     setSwipeHistory((prev) => prev.slice(0, -1));
     setCurrentIndex(lastAction.index);
 
-    // Restore selections
-    const prevName = names[lastAction.index];
     if (prevName) {
       setSelectedVariants((prev) => {
         const restoredSelections = new Map(prev);
