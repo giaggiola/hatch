@@ -1,0 +1,334 @@
+# Integrations
+
+This document covers setting up external services and third-party integrations used by Hatch.
+
+---
+
+## Overview
+
+| Service | Purpose | Required |
+|---------|---------|----------|
+| Google OAuth | User authentication | Yes |
+| Gmail SMTP | Email notifications | Optional |
+| Google Gemini | AI name facts | Optional |
+
+---
+
+## Google OAuth Setup
+
+Google OAuth is required for user authentication across web and mobile platforms.
+
+### 1. Create Google Cloud Project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Click **Select a project** → **New Project**
+3. Name: `Hatch` (or your preferred name)
+4. Click **Create**
+
+### 2. Enable APIs
+
+1. Navigate to **APIs & Services** → **Library**
+2. Search for and enable:
+   - **Google+ API** (or Google Identity)
+   - **Google People API** (optional, for profile data)
+
+### 3. Configure OAuth Consent Screen
+
+1. Go to **APIs & Services** → **OAuth consent screen**
+2. Select **External** (unless you have a Google Workspace)
+3. Fill in:
+   - **App name**: Hatch
+   - **User support email**: Your email
+   - **Developer contact email**: Your email
+4. Click **Save and Continue**
+5. **Scopes**: Add `email`, `profile`, `openid`
+6. **Test users**: Add your test email addresses
+7. Click **Save and Continue**
+
+### 4. Create OAuth Credentials
+
+#### Web Client (Backend + Frontend)
+
+1. Go to **APIs & Services** → **Credentials**
+2. Click **Create Credentials** → **OAuth client ID**
+3. Application type: **Web application**
+4. Name: `Hatch Web`
+5. **Authorized JavaScript origins**:
+   ```
+   http://localhost:3000
+   https://hatch-app.fly.dev
+   ```
+6. **Authorized redirect URIs**:
+   ```
+   http://localhost:8000/api/auth/google/callback
+   https://hatch-api.fly.dev/api/auth/google/callback
+   ```
+7. Click **Create**
+8. Copy **Client ID** and **Client Secret**
+
+#### iOS Client (Mobile)
+
+1. Click **Create Credentials** → **OAuth client ID**
+2. Application type: **iOS**
+3. Name: `Hatch iOS`
+4. **Bundle ID**: `com.hatch.app`
+5. Click **Create**
+6. Copy **Client ID** (no secret for iOS)
+
+#### Android Client (Mobile)
+
+1. Click **Create Credentials** → **OAuth client ID**
+2. Application type: **Android**
+3. Name: `Hatch Android`
+4. **Package name**: `com.hatch.app`
+5. **SHA-1 certificate fingerprint**:
+   ```bash
+   # Debug keystore
+   keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
+   ```
+6. Click **Create**
+7. Copy **Client ID**
+
+### 5. Configure Environment Variables
+
+#### Backend `.env`
+
+```env
+GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-your-secret
+```
+
+#### Frontend `.env.local`
+
+```env
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+```
+
+#### Mobile `.env`
+
+```env
+EXPO_PUBLIC_GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=123456789-ios.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=123456789-android.apps.googleusercontent.com
+```
+
+### 6. Mobile-Specific Configuration
+
+Update `mobile/app.json`:
+
+```json
+{
+  "plugins": [
+    [
+      "@react-native-google-signin/google-signin",
+      {
+        "iosUrlScheme": "com.googleusercontent.apps.YOUR-IOS-CLIENT-ID"
+      }
+    ]
+  ]
+}
+```
+
+**Note:** The `iosUrlScheme` is the iOS Client ID reversed (e.g., if your ID is `123456789-abc.apps.googleusercontent.com`, the scheme is `com.googleusercontent.apps.123456789-abc`).
+
+### OAuth Credentials Summary
+
+| Client | Use | Environment Variable |
+|--------|-----|---------------------|
+| Web | Backend + Frontend | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| iOS | Mobile app | `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` |
+| Android | Mobile app | `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` |
+
+---
+
+## Gmail SMTP Setup
+
+Gmail SMTP is used for sending email notifications (optional feature).
+
+### 1. Enable 2-Factor Authentication
+
+1. Go to [Google Account Security](https://myaccount.google.com/security)
+2. Enable **2-Step Verification**
+
+### 2. Generate App Password
+
+1. Go to [App Passwords](https://myaccount.google.com/apppasswords)
+2. Select app: **Mail**
+3. Select device: **Other** → Enter "Hatch"
+4. Click **Generate**
+5. Copy the 16-character password
+
+### 3. Configure Environment
+
+```env
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx  # App password, not regular password
+MAIL_FROM=your-email@gmail.com
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_STARTTLS=true
+MAIL_SSL_TLS=false
+```
+
+### 4. Test Email
+
+```python
+# In Python shell
+from app.services.email import send_email
+
+await send_email(
+    to="test@example.com",
+    subject="Test",
+    body="Hello from Hatch!"
+)
+```
+
+---
+
+## Google Gemini API
+
+Gemini is used for generating AI-powered name facts (etymology, meanings, famous people).
+
+### 1. Get API Key
+
+1. Go to [Google AI Studio](https://aistudio.google.com/)
+2. Click **Get API key**
+3. Create or select a project
+4. Copy the API key
+
+### 2. Configure Environment
+
+```env
+GEMINI_API_KEY=AIzaSy...your-key
+```
+
+### 3. Usage in Code
+
+```python
+# backend/app/services/name_facts.py
+import google.generativeai as genai
+
+genai.configure(api_key=settings.gemini_api_key)
+model = genai.GenerativeModel('gemini-pro')
+
+response = model.generate_content(f"Tell me about the name {name}")
+```
+
+### 4. Rate Limits
+
+| Tier | Requests/minute | Requests/day |
+|------|-----------------|--------------|
+| Free | 60 | 1,500 |
+| Pay-as-you-go | Higher | Higher |
+
+---
+
+## Production Secrets (Fly.io)
+
+### Set All Secrets
+
+```bash
+cd backend
+
+fly secrets set \
+  GOOGLE_CLIENT_ID="123456789-abc.apps.googleusercontent.com" \
+  GOOGLE_CLIENT_SECRET="GOCSPX-your-secret" \
+  JWT_SECRET="your-64-char-hex-secret" \
+  ADMIN_EMAILS="admin@example.com" \
+  GEMINI_API_KEY="AIzaSy..." \
+  MAIL_USERNAME="your-email@gmail.com" \
+  MAIL_PASSWORD="xxxx-xxxx-xxxx-xxxx" \
+  MAIL_FROM="your-email@gmail.com"
+```
+
+### Verify Secrets
+
+```bash
+fly secrets list
+```
+
+---
+
+## Troubleshooting
+
+### Google OAuth Issues
+
+| Issue | Solution |
+|-------|----------|
+| "redirect_uri_mismatch" | Check redirect URIs in Google Console match exactly |
+| "invalid_client" | Verify Client ID and Secret are correct |
+| "access_denied" | User not in test users (if app is in testing mode) |
+| Mobile sign-in fails | Check iOS/Android client IDs and bundle/package names |
+
+### Gmail SMTP Issues
+
+| Issue | Solution |
+|-------|----------|
+| "Authentication failed" | Use App Password, not regular password |
+| "Less secure apps" | Enable 2FA and use App Password |
+| "Daily limit exceeded" | Gmail limits: 500/day for free, 2000/day for Workspace |
+
+### Gemini API Issues
+
+| Issue | Solution |
+|-------|----------|
+| "API key not valid" | Check key is correct, project has billing enabled |
+| "Rate limit exceeded" | Implement caching, reduce requests |
+| "Model not found" | Use correct model name: `gemini-pro` |
+
+---
+
+## Security Best Practices
+
+### API Keys & Secrets
+
+| Practice | Reason |
+|----------|--------|
+| Never commit secrets | Use `.env` files (gitignored) |
+| Use different keys per environment | Isolate dev/prod |
+| Rotate keys periodically | Limit damage if compromised |
+| Restrict API key permissions | Limit to necessary APIs only |
+
+### OAuth
+
+| Practice | Reason |
+|----------|--------|
+| Verify redirect URIs | Prevent open redirect attacks |
+| Use state parameter | Prevent CSRF (handled by Authlib) |
+| Keep consent screen info accurate | Build user trust |
+
+---
+
+## Checklist
+
+### Google OAuth
+
+- [ ] Google Cloud project created
+- [ ] OAuth consent screen configured
+- [ ] Web client credentials created
+- [ ] iOS client credentials created (for mobile)
+- [ ] Android client credentials created (for mobile)
+- [ ] Redirect URIs configured for all environments
+- [ ] Environment variables set
+
+### Gmail SMTP (Optional)
+
+- [ ] 2-Factor Authentication enabled
+- [ ] App Password generated
+- [ ] Environment variables set
+- [ ] Test email sent successfully
+
+### Google Gemini (Optional)
+
+- [ ] API key generated
+- [ ] Environment variable set
+- [ ] Test API call works
+
+---
+
+## Related Documentation
+
+- [auth-system.md](auth-system.md) - How OAuth is used in the app
+- [environment.md](environment.md) - All environment variables
+- [deployment.md](deployment.md) - Setting production secrets
+- [mobile.md](mobile.md) - Mobile-specific OAuth setup
