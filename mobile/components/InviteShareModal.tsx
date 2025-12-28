@@ -34,7 +34,8 @@ export function InviteShareModal({ code, visible, onClose }: InviteShareModalPro
   const [emailError, setEmailError] = useState('');
 
   // Use the web app URL for the invite link
-  const inviteUrl = `https://hatch.name-me.app/invite/${code}`;
+  const baseUrl = process.env.EXPO_PUBLIC_WEB_URL || 'https://hatch.name-me.app';
+  const inviteUrl = `${baseUrl}/invite/${code}`;
 
   const handleCopy = async () => {
     try {

@@ -148,30 +148,34 @@ export default function SwipeScreen() {
     [names, currentIndex, selectedVariants, batchSwipeMutation, refetch]
   );
 
-  const handleUndo = useCallback(() => {
+  const handleUndo = useCallback(async () => {
     if (swipeHistory.length === 0 || currentIndex === 0) return;
 
     const lastSwipe = swipeHistory[swipeHistory.length - 1];
 
-    // Delete the swipe from backend
-    api.deleteSwipe(lastSwipe.name.id).catch(console.error);
+    try {
+      // Delete the swipe from backend - await to ensure consistency
+      await api.deleteSwipe(lastSwipe.name.id);
 
-    // Also delete all similar variant swipes (we send all variants in batch)
-    lastSwipe.name.similar.forEach((variant) => {
-      api.deleteSwipe(variant.id).catch(console.error);
-    });
+      // Also delete all similar variant swipes (we send all variants in batch)
+      await Promise.all(
+        lastSwipe.name.similar.map((variant) => api.deleteSwipe(variant.id))
+      );
 
-    // Restore state
-    setSwipeHistory((prev) => prev.slice(0, -1));
-    setSelectedVariants((prev) => {
-      const newMap = new Map(prev);
-      newMap.set(lastSwipe.name.id, lastSwipe.selectedVariants);
-      return newMap;
-    });
-    setCurrentIndex((prev) => prev - 1);
+      // Restore state only after successful deletion
+      setSwipeHistory((prev) => prev.slice(0, -1));
+      setSelectedVariants((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(lastSwipe.name.id, lastSwipe.selectedVariants);
+        return newMap;
+      });
+      setCurrentIndex((prev) => prev - 1);
 
-    queryClient.invalidateQueries({ queryKey: ['swipes'] });
-    queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['swipes'] });
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+    } catch (error) {
+      console.error('Failed to undo swipe:', error);
+    }
   }, [swipeHistory, currentIndex, queryClient]);
 
   const handleButtonSwipe = (action: 'like' | 'dismiss') => {

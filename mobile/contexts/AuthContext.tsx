@@ -20,13 +20,16 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Generate and log the redirect URI so we know what to add to Google Console
+// Generate the redirect URI for Google Console
 const redirectUri = makeRedirectUri({
   scheme: 'hatch',
 });
-console.log('===========================================');
-console.log('REDIRECT URI FOR GOOGLE CONSOLE:', redirectUri);
-console.log('===========================================');
+
+if (__DEV__) {
+  console.log('===========================================');
+  console.log('REDIRECT URI FOR GOOGLE CONSOLE:', redirectUri);
+  console.log('===========================================');
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -45,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Handle OAuth response
   useEffect(() => {
-    console.log('OAuth response:', response?.type);
+    if (__DEV__) console.log('OAuth response:', response?.type);
     if (response?.type === 'success') {
       const { authentication } = response;
       if (authentication?.accessToken) {
@@ -74,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsLoading(true);
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
-      console.log('Sending token to backend:', apiUrl);
+      if (__DEV__) console.log('Sending token to backend:', apiUrl);
 
       const response = await fetch(
         `${apiUrl}/api/auth/google/mobile`,
@@ -105,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = useCallback(async () => {
-    console.log('Starting sign in, request ready:', !!request);
+    if (__DEV__) console.log('Starting sign in, request ready:', !!request);
     await promptAsync();
   }, [promptAsync, request]);
 
@@ -132,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsLoading(true);
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
-      console.log('Dev login to:', apiUrl);
+      if (__DEV__) console.log('Dev login to:', apiUrl);
 
       const response = await fetch(`${apiUrl}/api/auth/dev-login`, {
         method: 'POST',

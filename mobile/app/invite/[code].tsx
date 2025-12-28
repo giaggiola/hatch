@@ -16,14 +16,14 @@ import { useColorScheme } from '@/components/useColorScheme';
 interface InviteDetail {
   code: string;
   status: string;
-  invited_by_name: string;
-  expires_at: string;
+  invited_by_name?: string;
+  expires_at?: string;
 }
 
 export default function InvitePage() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const router = useRouter();
-  const { user, isLoading: authLoading, signInWithGoogle } = useAuth();
+  const { user, isLoading: authLoading, signIn } = useAuth();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
@@ -76,7 +76,7 @@ export default function InvitePage() {
 
   const handleSignIn = async () => {
     try {
-      await signInWithGoogle();
+      await signIn();
       // After sign in, the useEffect will re-run and auto-accept
     } catch (err) {
       setError('Sign in failed. Please try again.');

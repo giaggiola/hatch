@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { api } from '@/lib/api';
 import { getOriginFlag, getCountryName } from '@/lib/countries';
 import { REGIONS, Region } from '@/lib/regions';
+import { getGenderIcon, getGenderColor } from '@/lib/genderUtils';
 import { Colors, Spacing, FontSizes, BorderRadius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { CreateNameModal } from '@/components/CreateNameModal';
@@ -29,6 +30,7 @@ export default function ExploreScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
   const [expandedRegion, setExpandedRegion] = useState<string | null>('europe');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -39,9 +41,9 @@ export default function ExploreScreen() {
   });
 
   const { data: searchResults, isLoading: searchLoading } = useQuery({
-    queryKey: ['searchNames', searchQuery],
-    queryFn: () => api.searchNames(searchQuery, 20),
-    enabled: searchQuery.length >= 2,
+    queryKey: ['searchNames', deferredSearchQuery],
+    queryFn: () => api.searchNames(deferredSearchQuery, 20),
+    enabled: deferredSearchQuery.length >= 2,
   });
 
   const { data: popularNames, isLoading: popularLoading } = useQuery({
@@ -53,16 +55,17 @@ export default function ExploreScreen() {
   const { data: customNames } = useQuery({
     queryKey: ['customNames'],
     queryFn: () => api.getCustomNames(),
+    staleTime: 1000 * 60 * 10, // 10 minutes - custom names rarely change
   });
 
   // Combine search results with filtered custom names
   const combinedSearchResults = useMemo(() => {
     const results: Name[] = searchResults ? [...searchResults] : [];
 
-    if (customNames && searchQuery.length >= 2) {
+    if (customNames && deferredSearchQuery.length >= 2) {
       // Filter custom names that match the search query
       const matchingCustomNames = customNames.filter((cn) =>
-        cn.name.toLowerCase().startsWith(searchQuery.toLowerCase())
+        cn.name.toLowerCase().startsWith(deferredSearchQuery.toLowerCase())
       );
 
       // Convert custom names to Name format and add to results
@@ -83,7 +86,7 @@ export default function ExploreScreen() {
     }
 
     return results;
-  }, [searchResults, customNames, searchQuery]);
+  }, [searchResults, customNames, deferredSearchQuery]);
 
   // Mutation for creating custom names
   const createNameMutation = useMutation({
@@ -135,22 +138,6 @@ export default function ExploreScreen() {
     await createNameMutation.mutateAsync({ name, gender });
   };
 
-  // Gender icon and colors
-  const getGenderIcon = (gender?: string) => {
-    switch (gender) {
-      case 'M': return '♂';
-      case 'F': return '♀';
-      default: return '◎';
-    }
-  };
-
-  const getGenderColor = (gender?: string) => {
-    switch (gender) {
-      case 'M': return '#3b82f6';
-      case 'F': return colors.primary;
-      default: return '#8b5cf6';
-    }
-  };
 
   // Calculate max count for bar scaling
   const maxCount = popularNames && popularNames.length > 0
@@ -159,7 +146,7 @@ export default function ExploreScreen() {
 
   const renderPopularNameItem = (item: Name, index: number) => {
     const barWidth = ((item.weighted_count || 0) / maxCount) * 100;
-    const genderColor = getGenderColor(item.gender);
+    const genderColor = getGenderColor(item.gender, colors);
 
     return (
       <TouchableOpacity
@@ -190,7 +177,7 @@ export default function ExploreScreen() {
   };
 
   const renderSearchResult = (item: Name) => {
-    const genderColor = getGenderColor(item.gender);
+    const genderColor = getGenderColor(item.gender, colors);
 
     return (
       <TouchableOpacity

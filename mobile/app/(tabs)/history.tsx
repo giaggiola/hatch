@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { api } from '@/lib/api';
+import { getGenderColor } from '@/lib/genderUtils';
 import { Colors, Spacing, FontSizes, BorderRadius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Swipe, Match, CloseCall } from '@/types';
@@ -87,6 +88,7 @@ export default function HistoryScreen() {
   const { data: closeCalls } = useQuery({
     queryKey: ['closeCalls'],
     queryFn: () => api.getCloseCalls(20, 0.75),
+    enabled: activeTab === 'matches' || activeTab === 'likes', // Only fetch when needed
   });
 
   const updateSwipeMutation = useMutation({
@@ -116,7 +118,7 @@ export default function HistoryScreen() {
 
   const sortedMatches = useMemo(() => {
     const allMatches = matchesData?.pages.flat() || [];
-    return [...allMatches].sort((a, b) => a.name.localeCompare(b.name));
+    return [...allMatches].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [matchesData]);
 
   const handleNamePress = (nameId: string) => {
@@ -208,8 +210,7 @@ export default function HistoryScreen() {
     if (!name) return null;
 
     const isLiked = item.action === 'like';
-    const genderColor =
-      name.gender === 'M' ? '#3b82f6' : name.gender === 'F' ? colors.primary : '#8b5cf6';
+    const genderColor = getGenderColor(name.gender, colors);
     const isUpdating = updateSwipeMutation.isPending;
 
     return (
@@ -246,8 +247,7 @@ export default function HistoryScreen() {
   };
 
   const renderMatchItem = ({ item }: { item: Match }) => {
-    const genderColor =
-      item.gender === 'M' ? '#3b82f6' : item.gender === 'F' ? colors.primary : '#8b5cf6';
+    const genderColor = getGenderColor(item.gender, colors);
 
     return (
       <TouchableOpacity

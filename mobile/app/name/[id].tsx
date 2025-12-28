@@ -14,6 +14,7 @@ import * as Speech from 'expo-speech';
 
 import { api } from '@/lib/api';
 import { originsToCountryCodes, getCountryName } from '@/lib/countries';
+import { getGenderColor, getGenderLabel } from '@/lib/genderUtils';
 import { Colors, Spacing, FontSizes, BorderRadius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { LikeButton } from '@/components/LikeButton';
@@ -52,6 +53,7 @@ export default function NameDetailScreen() {
     queryKey: ['customNames'],
     queryFn: () => api.getCustomNames(),
     enabled: !!id && (nameError || !regularName),
+    staleTime: 1000 * 60 * 10, // 10 minutes
   });
 
   // Find the custom name if regular name not found
@@ -69,24 +71,27 @@ export default function NameDetailScreen() {
 
   const isCustomName = !regularName && !!customName;
 
-  // Fetch facts (only for regular names)
+  // Fetch facts and popularity in parallel (only for regular names)
+  // These don't depend on each other, so we enable them at the same time
   const { data: facts } = useQuery<NameFacts>({
     queryKey: ['nameFacts', id],
     queryFn: () => api.getNameFacts(id!),
     enabled: !!id && !isCustomName && !!regularName,
+    staleTime: 1000 * 60 * 30, // 30 minutes - facts don't change often
   });
 
-  // Fetch popularity by region (only for regular names)
   const { data: regionPopularity } = useQuery<RegionPopularity[]>({
     queryKey: ['regionPopularity', id],
     queryFn: () => api.getPopularityByRegion(id!),
     enabled: !!id && !isCustomName && !!regularName,
+    staleTime: 1000 * 60 * 30, // 30 minutes - popularity data is stable
   });
 
   // Fetch user preferences for country prioritization
   const { data: preferences } = useQuery<Preferences>({
     queryKey: ['preferences'],
     queryFn: () => api.getPreferences(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
   // Compute user's country codes from preferences
@@ -179,9 +184,8 @@ export default function NameDetailScreen() {
     );
   }
 
-  const isMale = name.gender === 'M';
-  const genderColor = isMale ? '#3b82f6' : name.gender === 'F' ? colors.primary : '#8b5cf6';
-  const genderLabel = isMale ? 'Boy' : name.gender === 'F' ? 'Girl' : 'Unisex';
+  const genderColor = getGenderColor(name.gender, colors);
+  const genderLabel = getGenderLabel(name.gender);
 
   return (
     <ScrollView

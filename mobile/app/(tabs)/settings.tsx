@@ -21,7 +21,7 @@ import { Colors, Spacing, FontSizes, BorderRadius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Preferences, Invite, Origin } from '@/types';
 
-const GENDER_OPTIONS = [
+const GENDER_OPTIONS: { value: 'M' | 'F' | 'U'; label: string }[] = [
   { value: 'M', label: 'Boy' },
   { value: 'F', label: 'Girl' },
   { value: 'U', label: 'Unisex' },
@@ -201,14 +201,14 @@ export default function SettingsScreen() {
     }
   };
 
-  const toggleGender = (gender: string) => {
+  const toggleGender = (gender: 'M' | 'F' | 'U') => {
     const updated = localGenders.includes(gender)
       ? localGenders.filter((g) => g !== gender)
       : [...localGenders, gender];
     // Update local state immediately for responsive UI
     setLocalGenders(updated);
     // Then sync to server
-    updatePrefsMutation.mutate({ genders: updated });
+    updatePrefsMutation.mutate({ genders: updated as ('M' | 'F' | 'U')[] });
   };
 
   const toggleOrigin = (origin: string) => {
