@@ -12,7 +12,7 @@ This document describes the database schema, models, and migration workflow for 
 | **ORM** | SQLAlchemy 2.0 (async) |
 | **Migrations** | Alembic |
 | **Connection** | aiosqlite (async driver) |
-| **Location** | `backend/data/baby_names.db` |
+| **Location** | `backend/data/hatch.db` |
 
 ---
 
@@ -381,19 +381,33 @@ Since SQLite has limited type support, the codebase uses these conventions:
 Performance indexes for common queries:
 
 ```sql
--- Fast user lookup by Google ID
-CREATE INDEX idx_users_google_id ON users(google_id);
+-- Names table
+CREATE INDEX idx_names_name ON names(name);  -- Text search/autocomplete
 
--- Fast name search by country
-CREATE INDEX idx_name_popularity_country ON name_popularity(country_code);
+-- Users table
+CREATE INDEX idx_users_couple_id ON users(couple_id);  -- Couple member lookups
+
+-- Name popularity table
+CREATE INDEX ix_name_popularity_name_id ON name_popularity(name_id);
+CREATE INDEX ix_name_popularity_country_code ON name_popularity(country_code);
 CREATE INDEX idx_popularity_country_weight ON name_popularity(country_code, weighted_count);
+CREATE INDEX idx_popularity_rank ON name_popularity(popularity_rank);
 
--- Fast swipe queries
+-- Swipes table
 CREATE INDEX idx_swipes_user_action ON swipes(user_id, action);
 CREATE INDEX idx_swipes_couple_name ON swipes(couple_id, name_id);
+CREATE INDEX idx_swipes_user_name ON swipes(user_id, name_id);
 
--- Fast similarity lookup
-CREATE INDEX idx_name_similarities_name ON name_similarities(name_id);
+-- Name facts table
+CREATE INDEX ix_name_facts_name_id ON name_facts(name_id);
+
+-- Name similarities table
+CREATE INDEX ix_name_similarities_name_id ON name_similarities(name_id);
+CREATE INDEX ix_name_similarities_name_rank ON name_similarities(name_id, rank);
+
+-- Custom names table
+CREATE INDEX ix_custom_names_couple_id ON custom_names(couple_id);
+CREATE INDEX ix_custom_names_user_id ON custom_names(user_id);
 ```
 
 ---
@@ -489,7 +503,42 @@ This imports from `data/merged/merged_names.csv`.
 python -m app.seed.compute_similarities
 ```
 
-Pre-computes name similarity scores.
+Pre-computes name similarity scores (top 20 similar names per name).
+
+### Compute Name Facts (Batch)
+
+Uses the Gemini Batch API to enrich names with origin, meaning, nicknames, historical figures, and cultural references.
+
+```bash
+# Submit batch job to Gemini
+python -m app.seed.compute_name_facts_batch submit
+
+# Check batch job status
+python -m app.seed.compute_name_facts_batch status
+
+# Download results and import to DB
+python -m app.seed.compute_name_facts_batch download
+```
+
+Results are saved to both the `name_facts` table and `data/name_facts.csv` backup.
+
+### Compute Fact Embeddings
+
+Computes multi-aspect vector embeddings for similarity matching:
+- `embedding_phonetic` - Name + nicknames (sound similarity)
+- `embedding_etymology` - Meaning + origin (semantic similarity)
+- `embedding_associations` - Historical + fictional + cultural (vibe similarity)
+
+```bash
+# Process all names needing embeddings
+python -m app.seed.compute_fact_embeddings
+
+# Test with limited batch
+python -m app.seed.compute_fact_embeddings --limit 100
+
+# Recover from CSV backup to DB
+python -m app.seed.compute_fact_embeddings --recover
+```
 
 ---
 
@@ -498,13 +547,13 @@ Pre-computes name similarity scores.
 ### Development
 
 ```
-backend/data/baby_names.db
+backend/data/hatch.db
 ```
 
 ### Production (Fly.io)
 
 ```
-/app/data/baby_names.db
+/app/data/hatch.db
 ```
 
 Mounted on a persistent volume `hatch_data`.
@@ -516,17 +565,17 @@ Mounted on a persistent volume `hatch_data`.
 ### Local Backup
 
 ```bash
-cp backend/data/baby_names.db backend/data/baby_names.db.backup
+cp backend/data/hatch.db backend/data/hatch.db.backup
 ```
 
 ### Production Backup
 
 ```bash
 # SSH into Fly.io and copy
-fly ssh console -C "cp /app/data/baby_names.db /app/data/backup.db"
+fly ssh console -C "cp /app/data/hatch.db /app/data/backup.db"
 
 # Download via SFTP
-fly sftp get /app/data/baby_names.db ./baby_names_backup.db
+fly sftp get /app/data/hatch.db ./hatch_backup.db
 ```
 
 ### Restore
@@ -537,7 +586,7 @@ fly machines stop
 
 # Upload backup
 fly sftp shell
-> put baby_names_backup.db /app/data/baby_names.db
+> put hatch_backup.db /app/data/hatch.db
 
 # Restart
 fly machines start

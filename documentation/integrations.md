@@ -10,7 +10,7 @@ This document covers setting up external services and third-party integrations u
 |---------|---------|----------|
 | Google OAuth | User authentication | Yes |
 | Gmail SMTP | Email notifications | Optional |
-| Google Gemini | AI name facts | Optional |
+| Google Gemini | AI name facts (pre-computed) | Optional |
 
 ---
 
@@ -174,12 +174,12 @@ MAIL_SSL_TLS=false
 
 ```python
 # In Python shell
-from app.services.email import send_email
+from app.services.email import send_invite_email
 
-await send_email(
-    to="test@example.com",
-    subject="Test",
-    body="Hello from Hatch!"
+await send_invite_email(
+    to_email="test@example.com",
+    invite_code="TEST123",
+    inviter_name="Test User"
 )
 ```
 
@@ -187,7 +187,7 @@ await send_email(
 
 ## Google Gemini API
 
-Gemini is used for generating AI-powered name facts (etymology, meanings, famous people).
+Gemini is used for **pre-computing** AI-powered name facts (etymology, meanings, famous people). Facts are generated offline via batch processing scripts and stored in the database - there are no runtime API calls.
 
 ### 1. Get API Key
 
@@ -202,24 +202,55 @@ Gemini is used for generating AI-powered name facts (etymology, meanings, famous
 GEMINI_API_KEY=AIzaSy...your-key
 ```
 
-### 3. Usage in Code
+**Note:** This variable is only used by seed scripts, not the runtime backend.
 
-```python
-# backend/app/services/name_facts.py
-import google.generativeai as genai
+### 3. Models Used
 
-genai.configure(api_key=settings.gemini_api_key)
-model = genai.GenerativeModel('gemini-pro')
+| Model | Purpose | Script |
+|-------|---------|--------|
+| `gemini-2.5-flash` | Generate name facts (Batch API) | `app/seed/compute_name_facts_batch.py` |
+| `text-embedding-004` | Compute name similarity embeddings | `app/seed/compute_fact_embeddings.py` |
 
-response = model.generate_content(f"Tell me about the name {name}")
+### 4. Usage - Batch Processing
+
+Facts are pre-computed using the Batch API (50% cheaper than streaming):
+
+```bash
+cd backend
+
+# Submit batch job to generate facts
+python -m app.seed.compute_name_facts_batch submit
+
+# Check job status
+python -m app.seed.compute_name_facts_batch status
+
+# Download results and import to database
+python -m app.seed.compute_name_facts_batch download
 ```
 
-### 4. Rate Limits
+Embeddings for similarity search:
 
-| Tier | Requests/minute | Requests/day |
-|------|-----------------|--------------|
-| Free | 60 | 1,500 |
-| Pay-as-you-go | Higher | Higher |
+```bash
+# Compute embeddings for names with facts
+python -m app.seed.compute_fact_embeddings
+
+# Or limit for testing
+python -m app.seed.compute_fact_embeddings --limit 100
+```
+
+### 5. How It Works
+
+1. **Batch job generates facts** for each name (origin, meaning, nicknames, famous people)
+2. **Results stored in** `name_facts` table in database
+3. **Embeddings computed** for phonetic, etymology, and associations similarity
+4. **Runtime API endpoint** (`GET /api/names/{id}/facts`) queries pre-computed data
+
+### 6. Rate Limits
+
+| API | Tier | Limit |
+|-----|------|-------|
+| Batch API | Free | 1 million tokens/day |
+| Embedding API | Free | 100 requests/minute |
 
 ---
 
@@ -272,9 +303,9 @@ fly secrets list
 
 | Issue | Solution |
 |-------|----------|
-| "API key not valid" | Check key is correct, project has billing enabled |
-| "Rate limit exceeded" | Implement caching, reduce requests |
-| "Model not found" | Use correct model name: `gemini-pro` |
+| "API key not valid" | Check key is correct in environment |
+| "Rate limit exceeded" | Use batch processing, reduce batch size |
+| "Model not found" | Use `gemini-2.5-flash` for facts, `text-embedding-004` for embeddings |
 
 ---
 
@@ -321,8 +352,10 @@ fly secrets list
 ### Google Gemini (Optional)
 
 - [ ] API key generated
-- [ ] Environment variable set
-- [ ] Test API call works
+- [ ] `GEMINI_API_KEY` environment variable set
+- [ ] Batch job submitted and completed
+- [ ] Name facts imported to database
+- [ ] Embeddings computed for similarity search
 
 ---
 

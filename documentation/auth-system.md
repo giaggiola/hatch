@@ -441,8 +441,8 @@ Auth endpoints are rate-limited to prevent brute force:
 
 | Endpoint | Limit |
 |----------|-------|
-| `/api/auth/google` | 5/minute |
-| `/api/auth/google/mobile` | 5/minute |
+| `/api/auth/google` | 10/minute |
+| `/api/auth/google/mobile` | 10/minute |
 
 ---
 

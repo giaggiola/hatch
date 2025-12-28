@@ -31,10 +31,10 @@ All responses are JSON with consistent error format:
 
 | Endpoint Type | Limit |
 |---------------|-------|
-| Auth | 5/minute |
-| Swipes | 100/minute |
+| Auth | 10/minute |
+| Swipes | 60/minute |
 | Search | 30/minute |
-| Invites | 10/minute |
+| Invites | 5/minute |
 
 ---
 
@@ -110,9 +110,9 @@ Get current authenticated user.
 
 ### `POST /api/auth/logout`
 
-Logout (backend cleanup).
+Logout (frontend handles clearing its own cookie).
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Response:**
 ```json
@@ -199,9 +199,9 @@ Or `null` if no partner.
 
 ### `POST /api/invites`
 
-Create a new invite link.
+Create a new invite link. Sends email if email is provided.
 
-**Auth Required:** Yes
+**Auth Required:** Yes (User must be in a couple)
 
 **Request Body:**
 ```json
@@ -295,7 +295,7 @@ Get names for swiping with similar names included.
 **Query Parameters:**
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `limit` | int | 10 | Max names to return |
+| `limit` | int | 10 | Max names to return (max 50) |
 
 **Response:**
 ```json
@@ -324,7 +324,7 @@ Get names for swiping with similar names included.
 
 Get name details by ID.
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Response:**
 ```json
@@ -342,18 +342,57 @@ Get name details by ID.
 
 ---
 
-### `GET /api/names/{id}/similar`
+### `GET /api/names/{id}/detail`
 
-Get similar names for a given name.
+Get a name with similar variants for the detail/explore page.
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Query Parameters:**
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `limit` | int | 10 | Max results |
-| `min_similarity` | float | 0.89 | Minimum similarity score |
-| `gender` | string | - | Filter by gender |
+| `limit` | int | 10 | Max similar names (max 20) |
+| `min_similarity` | float | 0.84 | Minimum similarity score (0.5-1.0) |
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "name": "James",
+  "gender": "M",
+  "meaning": "Supplanter",
+  "length": 5,
+  "countries": ["US", "GB"],
+  "popularity_rank": 5,
+  "weighted_count": 12345.67,
+  "similar": [
+    {
+      "id": "uuid",
+      "name": "Jamie",
+      "gender": "U",
+      "similarity": 0.92,
+      "countries": ["GB", "IE"],
+      "popularity_rank": 45,
+      "weighted_count": 5678.90
+    }
+  ]
+}
+```
+
+---
+
+### `GET /api/names/{id}/similar`
+
+Get similar names using embedding similarity.
+
+**Auth Required:** No
+
+**Query Parameters:**
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | int | 10 | Max results (max 20) |
+| `min_similarity` | float | 0.84 | Minimum similarity score (0.5-1.0) |
+| `gender` | string | - | Filter by gender (M, F, U, or 'same' to match source name) |
 
 **Response:**
 ```json
@@ -373,9 +412,9 @@ Get similar names for a given name.
 
 ### `GET /api/names/{id}/facts`
 
-Get AI-generated facts about a name.
+Get enriched facts about a name (origin, meaning, nicknames, famous people).
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Response:**
 ```json
@@ -409,7 +448,7 @@ Get AI-generated facts about a name.
 
 Get popularity breakdown by country.
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Response:**
 ```json
@@ -435,15 +474,15 @@ Get popularity breakdown by country.
 
 ### `GET /api/names/search`
 
-Search names by prefix.
+Search names by prefix (autocomplete), sorted by popularity.
 
-**Auth Required:** Yes
+**Auth Required:** No (Rate limited: 30/minute)
 
 **Query Parameters:**
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `q` | string | - | Search query (required) |
-| `limit` | int | 20 | Max results |
+| `q` | string | - | Search query (required, 1-50 chars) |
+| `limit` | int | 20 | Max results (max 50) |
 
 **Response:** Array of name objects
 
@@ -451,15 +490,15 @@ Search names by prefix.
 
 ### `GET /api/names/popular`
 
-Get popular names.
+Get most popular names globally.
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Query Parameters:**
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `gender` | string | - | Filter by M, F, or U |
-| `limit` | int | 10 | Max results |
+| `limit` | int | 10 | Max results (max 50) |
 
 **Response:** Array of name objects
 
@@ -467,9 +506,9 @@ Get popular names.
 
 ### `GET /api/names/countries`
 
-Get list of available countries.
+Get list of available countries with name counts.
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Response:**
 ```json
@@ -491,9 +530,9 @@ Get list of available countries.
 
 ### `GET /api/names/origins`
 
-Get list of available origins/regions.
+Get list of available origins (country names) with name counts.
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Response:**
 ```json
@@ -513,14 +552,14 @@ Get list of available origins/regions.
 
 ### `GET /api/names/by-origin/{origin}`
 
-Get names by origin/region.
+Get names by origin/country.
 
-**Auth Required:** Yes
+**Auth Required:** No
 
 **Query Parameters:**
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `limit` | int | 50 | Max results |
+| `limit` | int | 50 | Max results (max 200) |
 | `offset` | int | 0 | Pagination offset |
 
 **Response:** Array of name objects
@@ -843,7 +882,23 @@ Delete a custom name.
 
 ---
 
-## Health & Admin
+## Root Endpoints
+
+### `GET /`
+
+Root endpoint returning API info.
+
+**Auth Required:** No
+
+**Response:**
+```json
+{
+  "message": "Hatch API",
+  "docs": "/docs"
+}
+```
+
+---
 
 ### `GET /health`
 
@@ -860,11 +915,21 @@ Health check endpoint.
 
 ---
 
+### `GET /favicon.ico`
+
+Favicon file.
+
+**Auth Required:** No
+
+**Response:** ICO file
+
+---
+
 ### `GET /admin`
 
 SQLAdmin panel (admin users only).
 
-**Auth Required:** Yes (admin session)
+**Auth Required:** Yes (admin session via Google OAuth)
 
 ---
 

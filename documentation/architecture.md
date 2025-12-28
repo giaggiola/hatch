@@ -116,7 +116,7 @@ backend/
 | Aspect | Details |
 |--------|---------|
 | **Engine** | SQLite via aiosqlite |
-| **Location** | `backend/data/baby_names.db` |
+| **Location** | `backend/data/hatch.db` |
 | **Persistence** | Fly.io volume mount |
 
 See [database.md](database.md) for schema details.
@@ -178,7 +178,7 @@ See [database.md](database.md) for schema details.
      │◄─ID Token───────│                 │                 │
      │                 │                 │                 │
      │─────────POST /api/auth/google/mobile──────────────►│
-     │                 │     { id_token }                  │
+     │                 │     { access_token }              │
      │                 │                 │                 │
      │                 │                 │─Verify token────│
      │                 │                 │                 │
@@ -252,12 +252,14 @@ See [database.md](database.md) for schema details.
 
 ### Middleware Stack
 
+Note: FastAPI/Starlette processes middleware in LIFO order (last added → first to process).
+
 ```
 Request
     │
     ▼
 ┌───────────────────────────┐
-│   ProxyHeadersMiddleware  │  ← Handle X-Forwarded-* headers
+│   CORSMiddleware          │  ← Cross-origin requests (added last, runs first)
 └────────────┬──────────────┘
              ▼
 ┌───────────────────────────┐
@@ -265,14 +267,12 @@ Request
 └────────────┬──────────────┘
              ▼
 ┌───────────────────────────┐
-│   CORSMiddleware          │  ← Cross-origin requests
+│   ProxyHeadersMiddleware  │  ← Handle X-Forwarded-* headers
 └────────────┬──────────────┘
              ▼
 ┌───────────────────────────┐
-│   Rate Limiter (SlowAPI)  │  ← Request rate limiting
-└────────────┬──────────────┘
-             ▼
-       Route Handler
+│   Route Handler           │  ← @limiter.limit() decorators for rate limiting
+└───────────────────────────┘
 ```
 
 ---
@@ -306,18 +306,18 @@ The mobile app uses **Authorization header**:
 
 ### React Query (Client-Side)
 
-| Data Type | Stale Time | Cache Time |
-|-----------|------------|------------|
-| User profile | 5 min | 10 min |
-| Names (swipe) | 0 (always fresh) | 5 min |
-| Matches | 30 sec | 5 min |
-| Preferences | 5 min | 10 min |
+| Data Type | Stale Time | GC Time |
+|-----------|------------|---------|
+| Static (countries, origins) | 1 hour | 2 hours |
+| Semi-static (search, name details) | 5 min | 30 min |
+| User data (preferences, swipes, matches) | 2 min | 10 min |
+| Dynamic (current user, partner) | 30 sec | 5 min |
 
 ### HTTP Caching (Backend)
 
 ```
-Cache-Control: private, max-age=300  # User-specific data
-Cache-Control: public, max-age=3600  # Static name data
+Cache-Control: public, max-age=3600   # Static data (countries, origins, popular names)
+Cache-Control: public, max-age=300    # Semi-static data (search results)
 ```
 
 ---
@@ -350,7 +350,7 @@ Cache-Control: public, max-age=3600  # Static name data
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │   GitHub Actions (CI/CD)                                         │
-│   - Push to main → Deploy backend → Deploy frontend              │
+│   - Push to main → Deploy backend & frontend (parallel)          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -376,9 +376,11 @@ Cache-Control: public, max-age=3600  # Static name data
 
 | Endpoint | Limit |
 |----------|-------|
-| Auth endpoints | 5/minute |
+| Auth endpoints | 10/minute |
 | API endpoints | 100/minute |
 | Name search | 30/minute |
+| Swipe endpoints | 60/minute |
+| Invite creation | 5/minute |
 
 ### Data Protection
 

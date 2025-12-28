@@ -427,11 +427,11 @@ fly volumes extend <volume-id> --size 2
 
 ```bash
 # Download via SFTP
-fly sftp get /app/data/baby_names.db ./backup.db
+fly sftp get /app/data/hatch.db ./backup.db
 
 # Or interactive SFTP
 fly sftp shell
-> get /app/data/baby_names.db ./backup.db
+> get /app/data/hatch.db ./backup.db
 ```
 
 ### Restore Database
@@ -443,7 +443,7 @@ fly machines stop <machine-id>
 
 # Upload backup
 fly sftp shell
-> put ./backup.db /app/data/baby_names.db
+> put ./backup.db /app/data/hatch.db
 
 # Start machines
 fly machines start <machine-id>

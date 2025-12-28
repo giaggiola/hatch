@@ -25,27 +25,40 @@ mobile/
 │   ├── (tabs)/             # Tab navigator screens
 │   │   ├── _layout.tsx     # Tab bar configuration
 │   │   ├── index.tsx       # Home/Swipe screen
-│   │   ├── explore.tsx     # Browse names
-│   │   ├── history.tsx     # Liked/dismissed names
+│   │   ├── explore.tsx     # Browse names by origin
+│   │   ├── history.tsx     # Liked/dismissed/matches tabs
 │   │   └── settings.tsx    # User settings
+│   ├── explore/
+│   │   └── [origin].tsx    # Browse names by specific origin
 │   ├── invite/
 │   │   └── [code].tsx      # Deep link invite handler
 │   ├── name/
-│   │   └── [id].tsx        # Name detail screen
+│   │   └── [id].tsx        # Name detail modal with facts
 │   ├── login.tsx           # Login screen
-│   ├── popular.tsx         # Popular names
+│   ├── popular.tsx         # Popular names screen
 │   ├── modal.tsx           # Modal screen
+│   ├── +html.tsx           # Web support
+│   ├── +not-found.tsx      # 404 error page
 │   └── _layout.tsx         # Root layout
 ├── components/             # Reusable components
 │   ├── SwipeCard.tsx       # Swipeable name card
 │   ├── MatchModal.tsx      # Match celebration
 │   ├── InviteShareModal.tsx# Invite sharing
+│   ├── CreateNameModal.tsx # Add custom names
 │   ├── LikeButton.tsx      # Heart button
+│   ├── AnimatedSplash.tsx  # Splash screen animation
 │   └── ...
 ├── contexts/
-│   └── AuthContext.tsx     # Auth state management
+│   ├── AuthContext.tsx     # Auth state management
+│   └── ThemeContext.tsx    # Light/dark/system theme
 ├── lib/
-│   └── api.ts              # API client
+│   ├── api.ts              # API client
+│   ├── genderUtils.ts      # Gender display utilities
+│   ├── countries.ts        # Country/flag emoji mapping
+│   └── regions.ts          # Region definitions
+├── constants/
+│   ├── Colors.ts           # Theme colors
+│   └── theme.ts            # Spacing, fonts, design tokens
 ├── types/                  # TypeScript types
 ├── assets/                 # Images, fonts
 ├── ios/                    # iOS native project
@@ -181,29 +194,58 @@ npx expo run:android
 
 ### Google Sign-In Flow
 
-The mobile app uses native Google Sign-In:
+The mobile app uses `expo-auth-session` for Google Sign-In:
 
 ```typescript
 // contexts/AuthContext.tsx
 import * as Google from 'expo-auth-session/providers/google';
+import { makeRedirectUri } from 'expo-auth-session';
+
+const redirectUri = makeRedirectUri({ scheme: 'hatch' });
 
 const [request, response, promptAsync] = Google.useAuthRequest({
   iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
   webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
-  redirectUri: makeRedirectUri({ scheme: 'hatch' }),
+  redirectUri,
 });
 
 // Trigger sign in
-await promptAsync();
+const signIn = async () => {
+  await promptAsync();
+};
 
-// Handle response
-if (response?.type === 'success') {
-  const { authentication } = response;
-  // Send to backend
-  const result = await api.exchangeMobileToken(authentication.accessToken);
-  await api.setToken(result.access_token);
-}
+// Handle response in useEffect
+useEffect(() => {
+  if (response?.type === 'success') {
+    const { authentication } = response;
+    if (authentication?.accessToken) {
+      handleGoogleToken(authentication.accessToken);
+    }
+  }
+}, [response]);
+
+// Exchange Google token for app token
+const handleGoogleToken = async (googleAccessToken: string) => {
+  const response = await fetch(`${apiUrl}/api/auth/google/mobile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ access_token: googleAccessToken }),
+  });
+  const { access_token } = await response.json();
+  await api.setToken(access_token);
+  const userData = await api.getMe();
+  setUser(userData);
+};
 ```
+
+**AuthContext provides:**
+- `user` - Current user object
+- `isLoading` - Loading state
+- `isAuthenticated` - Boolean auth status
+- `signIn()` - Trigger Google OAuth
+- `signOut()` - Clear session
+- `refreshUser()` - Reload user data
+- `devSignIn()` - Dev-only login
 
 ### Token Storage
 
@@ -257,9 +299,13 @@ expo-router uses file-based routing similar to Next.js:
 | `app/index.tsx` | `/` |
 | `app/login.tsx` | `/login` |
 | `app/(tabs)/index.tsx` | `/` (tab) |
+| `app/(tabs)/explore.tsx` | `/explore` |
 | `app/(tabs)/history.tsx` | `/history` |
+| `app/(tabs)/settings.tsx` | `/settings` |
 | `app/name/[id].tsx` | `/name/:id` |
 | `app/invite/[code].tsx` | `/invite/:code` |
+| `app/explore/[origin].tsx` | `/explore/:origin` |
+| `app/popular.tsx` | `/popular` |
 
 ### Tab Navigation
 
@@ -385,10 +431,55 @@ class ApiClient {
     return response.json();
   }
 
-  // API methods...
-  async getNames(limit = 20) { ... }
-  async createSwipe(nameId, action) { ... }
-  async getMatches() { ... }
+  // Auth methods
+  async getMe(): Promise<User>
+  async exchangeCodeForToken(code: string): Promise<{ access_token: string }>
+  async logout(): Promise<void>
+
+  // User methods
+  async updateUser(data: { display_name?, family_name? }): Promise<User>
+  async deleteUser(): Promise<void>
+  async getPartner(): Promise<Partner | null>
+
+  // Invite methods
+  async createInvite(invited_email?): Promise<Invite>
+  async getInvite(code): Promise<InviteDetail>
+  async acceptInvite(code): Promise<void>
+
+  // Name methods
+  async getNames(limit?): Promise<Name[]>
+  async getNameDetails(nameId): Promise<Name>
+  async searchNames(query, limit?): Promise<Name[]>
+  async getNamesByOrigin(origin, limit?, offset?): Promise<Name[]>
+  async getPopularNames(gender?, limit?): Promise<Name[]>
+  async getSimilarNames(nameId, limit?, minSimilarity?, gender?): Promise<Name[]>
+  async getNamesForSwiping(limit?): Promise<NameWithSimilar[]>
+  async getNameFacts(nameId): Promise<NameFacts>
+  async getPopularityByRegion(nameId): Promise<RegionPopularity[]>
+  async getCountries(): Promise<Country[]>
+  async getOrigins(): Promise<Origin[]>
+
+  // Custom names
+  async createCustomName(data: { name, gender }): Promise<CustomName>
+  async getCustomNames(): Promise<CustomName[]>
+  async deleteCustomName(id): Promise<void>
+
+  // Swipes
+  async createSwipe(name_id, action): Promise<SwipeResult>
+  async createBatchSwipes(swipes): Promise<BatchSwipeResult>
+  async getSwipes(action?, limit?, offset?): Promise<Swipe[]>
+  async getSwipeCounts(): Promise<{ likes, dismisses }>
+  async checkSwipeStatus(nameId): Promise<{ action: 'like' | 'dismiss' | null }>
+  async updateSwipe(name_id, action): Promise<SwipeResult>
+  async deleteSwipe(name_id): Promise<void>
+
+  // Matches
+  async getMatches(limit?, offset?): Promise<Match[]>
+  async getCloseCalls(limit?, minSimilarity?): Promise<CloseCall[]>
+
+  // Preferences
+  async getPreferences(): Promise<Preferences>
+  async updatePreferences(data): Promise<Preferences>
 }
 
 export const api = new ApiClient();
@@ -434,6 +525,47 @@ export function AuthProvider({ children }) {
 }
 ```
 
+### Theme Context
+
+Handles light/dark/system theme switching with persistence:
+
+```typescript
+// contexts/ThemeContext.tsx
+type ThemeMode = 'light' | 'dark' | 'system';
+
+export function ThemeProvider({ children }) {
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system');
+  const systemColorScheme = useColorScheme();
+
+  // Load persisted theme on mount
+  useEffect(() => {
+    AsyncStorage.getItem('app_theme').then((saved) => {
+      if (saved) setThemeMode(saved as ThemeMode);
+    });
+  }, []);
+
+  // Persist theme changes
+  const updateTheme = async (mode: ThemeMode) => {
+    setThemeMode(mode);
+    await AsyncStorage.setItem('app_theme', mode);
+  };
+
+  // Resolve effective color scheme
+  const effectiveColorScheme = themeMode === 'system'
+    ? systemColorScheme
+    : themeMode;
+
+  return (
+    <ThemeContext.Provider value={{ themeMode, effectiveColorScheme, setTheme: updateTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+// Usage
+const { themeMode, effectiveColorScheme, setTheme } = useTheme();
+```
+
 ---
 
 ## Components
@@ -447,12 +579,20 @@ Swipeable name card with gesture handling:
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 
+const SWIPE_THRESHOLD = 100;      // Distance threshold
+const VELOCITY_THRESHOLD = 500;   // Velocity threshold (px/s)
+
 export function SwipeCard({ name, onSwipe }) {
   const gesture = Gesture.Pan()
     .onEnd((event) => {
-      if (event.translationX > 100) {
+      const swipedRight = event.translationX > SWIPE_THRESHOLD ||
+                          event.velocityX > VELOCITY_THRESHOLD;
+      const swipedLeft = event.translationX < -SWIPE_THRESHOLD ||
+                         event.velocityX < -VELOCITY_THRESHOLD;
+
+      if (swipedRight) {
         onSwipe('like');
-      } else if (event.translationX < -100) {
+      } else if (swipedLeft) {
         onSwipe('dismiss');
       }
     });
@@ -460,7 +600,7 @@ export function SwipeCard({ name, onSwipe }) {
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View style={animatedStyle}>
-        {/* Card content */}
+        {/* Card content with name, gender icon, origin */}
       </Animated.View>
     </GestureDetector>
   );
@@ -484,6 +624,120 @@ export function MatchModal({ name, visible, onClose }) {
     </Modal>
   );
 }
+```
+
+### CreateNameModal
+
+Modal for adding custom names to the pool:
+
+```typescript
+// components/CreateNameModal.tsx
+export function CreateNameModal({ visible, onClose, onSubmit }) {
+  const [name, setName] = useState('');
+  const [gender, setGender] = useState<'M' | 'F' | 'U'>('U');
+
+  const handleSubmit = async () => {
+    await api.createCustomName({ name, gender });
+    onSubmit();
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <TextInput value={name} onChangeText={setName} placeholder="Enter name" />
+      <GenderSelector value={gender} onChange={setGender} />
+      <Button title="Add Name" onPress={handleSubmit} />
+    </Modal>
+  );
+}
+```
+
+---
+
+## Utility Libraries
+
+### Gender Display (lib/genderUtils.ts)
+
+Utilities for consistent gender display across the app:
+
+```typescript
+type Gender = 'M' | 'F' | 'U';
+
+// Get gender symbol
+getGenderIcon(gender: Gender): string
+  // 'M' → '♂', 'F' → '♀', 'U' → '◎'
+
+// Get gender color
+getGenderColor(gender: Gender, colors): string
+  // 'M' → blue, 'F' → pink, 'U' → purple
+
+// Get human-readable label
+getGenderLabel(gender: Gender): string
+  // 'M' → 'Boy', 'F' → 'Girl', 'U' → 'Unisex'
+```
+
+### Country Utilities (lib/countries.ts)
+
+Maps origin names to country flags:
+
+```typescript
+// Convert origin name to flag emoji
+getOriginFlag(origin: string): string
+  // 'Italian' → '🇮🇹'
+  // 'Spanish' → '🇪🇸'
+  // 'Japanese' → '🇯🇵'
+
+// Covers 100+ origins with ISO country code mappings
+```
+
+### Region Definitions (lib/regions.ts)
+
+Organizes origins into geographic regions:
+
+```typescript
+const regions = [
+  { name: 'Europe', emoji: '🇪🇺', origins: ['Italian', 'Spanish', ...] },
+  { name: 'Americas', emoji: '🌎', origins: ['American', 'Mexican', ...] },
+  { name: 'Asia & Oceania', emoji: '🌏', origins: ['Japanese', 'Chinese', ...] },
+  { name: 'Middle East & Africa', emoji: '🌍', origins: ['Arabic', 'Hebrew', ...] },
+];
+```
+
+---
+
+## TypeScript Types
+
+All types are defined in `types/index.ts`:
+
+| Type | Description |
+|------|-------------|
+| `User` | Current user profile (id, email, display_name, avatar_url, couple_id) |
+| `Partner` | Partner in couple (id, display_name, avatar_url) |
+| `Invite` | Invite object (code, status, expires_at) |
+| `InviteDetail` | Invite with inviter info |
+| `Name` | Name record (name, gender, meaning, countries, popularity_rank) |
+| `SimilarName` | Related name with similarity score |
+| `NameWithSimilar` | Name with array of similar names |
+| `Country` | Country with name count |
+| `Origin` | Name origin (Italian, Spanish, etc.) with count |
+| `Swipe` | User swipe action (like/dismiss) |
+| `SwipeResult` | Result with match boolean |
+| `BatchSwipeResult` | Batch result with matches array |
+| `Match` | Mutually liked name with matched_at date |
+| `CloseCall` | Near-match (you liked A, partner liked similar B) |
+| `Preferences` | User filter preferences (origins, genders, letters) |
+| `RegionPopularity` | Popularity stats by country |
+| `NameFacts` | Historical/cultural facts about a name |
+| `CustomName` | User-created custom name |
+
+**Helper function:**
+
+```typescript
+// Format popularity rank as readable percentage
+formatPopularityAsPercentage(rank: number): string
+  // 50 → 'Top 0.1%'
+  // 500 → 'Top 5%'
+  // 5000 → 'Top 50%'
 ```
 
 ---

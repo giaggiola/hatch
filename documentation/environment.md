@@ -23,7 +23,7 @@ Located in `backend/.env`
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | No | `sqlite+aiosqlite:///./data/baby_names.db` | SQLAlchemy database connection string |
+| `DATABASE_URL` | No | `sqlite+aiosqlite:///./data/hatch.db` | SQLAlchemy database connection string |
 | `DEBUG` | No | `false` | Enable debug mode (enables dev login endpoint) |
 
 ### Authentication
@@ -71,7 +71,7 @@ Located in `backend/.env`
 
 ```env
 # Database
-DATABASE_URL=sqlite+aiosqlite:///./data/baby_names.db
+DATABASE_URL=sqlite+aiosqlite:///./data/hatch.db
 
 # Google OAuth
 GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
@@ -127,7 +127,8 @@ Located in `mobile/.env`
 | `EXPO_PUBLIC_API_URL` | Yes | - | Backend API URL |
 | `EXPO_PUBLIC_GOOGLE_CLIENT_ID` | Yes | - | Web OAuth client ID (for Expo web) |
 | `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | Yes | - | iOS OAuth client ID |
-| `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` | No | - | Android OAuth client ID |
+| `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` | No | - | Android OAuth client ID (not currently used in code) |
+| `EXPO_PUBLIC_WEB_URL` | No | `https://hatch.name-me.app` | Web app URL for invite links shared from mobile |
 
 **Note:** All mobile environment variables must be prefixed with `EXPO_PUBLIC_` to be accessible in the app.
 
@@ -138,6 +139,7 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 EXPO_PUBLIC_GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=123456789-ios.apps.googleusercontent.com
 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=123456789-android.apps.googleusercontent.com
+EXPO_PUBLIC_WEB_URL=https://hatch.name-me.app
 ```
 
 ---
@@ -229,7 +231,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 | Variable | Development | Production |
 |----------|-------------|------------|
-| `DATABASE_URL` | `sqlite+aiosqlite:///./data/baby_names.db` | Same (with mounted volume) |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./data/hatch.db` | Same (with mounted volume) |
 | `FRONTEND_URL` | `http://localhost:3000` | `https://your-app.fly.dev` |
 | `BACKEND_URL` | `http://localhost:8000` | `https://your-api.fly.dev` |
 | `DEBUG` | `true` (optional) | `false` |
