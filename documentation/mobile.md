@@ -12,7 +12,7 @@ This document covers the React Native mobile app built with Expo, including setu
 | **React Native** | 0.81.5 |
 | **Router** | expo-router (file-based) |
 | **State** | React Query |
-| **Auth** | @react-native-google-signin/google-signin |
+| **Auth** | expo-auth-session (with @react-native-google-signin plugin for iOS URL scheme) |
 | **Storage** | expo-secure-store |
 
 ---
