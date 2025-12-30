@@ -16,7 +16,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.hatch.app",
-      "associatedDomains": ["applinks:hatch.name-me.app"]
+      "associatedDomains": [
+        "applinks:hatch.name-me.app"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -36,7 +38,10 @@
               "pathPrefix": "/invite"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -59,9 +64,19 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {
+        "origin": false
+      },
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "5d192e40-491d-4909-ac40-e0f5bd3f6873"
       }
+    },
+    "owner": "giaggi92",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/5d192e40-491d-4909-ac40-e0f5bd3f6873"
     }
   }
 }
