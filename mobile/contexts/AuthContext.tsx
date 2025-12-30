@@ -1,12 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Alert } from 'react-native';
-import * as Google from 'expo-auth-session/providers/google';
-import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri } from 'expo-auth-session';
+import {
+  GoogleSignin,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import { api } from '../lib/api';
 import { User } from '../types';
 
-WebBrowser.maybeCompleteAuthSession();
+// Configure Google Sign-In
+GoogleSignin.configure({
+  iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+});
 
 interface AuthContextType {
   user: User | null;
@@ -20,44 +25,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Generate the redirect URI for Google Console
-const redirectUri = makeRedirectUri({
-  scheme: 'hatch',
-});
-
-if (__DEV__) {
-  console.log('===========================================');
-  console.log('REDIRECT URI FOR GOOGLE CONSOLE:', redirectUri);
-  console.log('===========================================');
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
-    redirectUri,
-  });
 
   // Check if user is already logged in
   useEffect(() => {
     checkAuth();
   }, []);
-
-  // Handle OAuth response
-  useEffect(() => {
-    if (__DEV__) console.log('OAuth response:', response?.type);
-    if (response?.type === 'success') {
-      const { authentication } = response;
-      if (authentication?.accessToken) {
-        handleGoogleToken(authentication.accessToken);
-      }
-    } else if (response?.type === 'error') {
-      console.error('OAuth error:', response.error);
-    }
-  }, [response]);
 
   const checkAuth = async () => {
     try {
@@ -108,13 +83,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = useCallback(async () => {
-    if (__DEV__) console.log('Starting sign in, request ready:', !!request);
-    await promptAsync();
-  }, [promptAsync, request]);
+    try {
+      setIsLoading(true);
+      if (__DEV__) console.log('Starting native Google Sign-In');
+
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+
+      if (__DEV__) console.log('Google Sign-In success, getting tokens');
+      const tokens = await GoogleSignin.getTokens();
+
+      if (tokens.accessToken) {
+        await handleGoogleToken(tokens.accessToken);
+      }
+    } catch (error: any) {
+      setIsLoading(false);
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        if (__DEV__) console.log('User cancelled sign in');
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        if (__DEV__) console.log('Sign in already in progress');
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert('Error', 'Play services not available');
+      } else {
+        console.error('Google Sign-In error:', error);
+        Alert.alert('Sign In Error', error.message || 'Failed to sign in');
+      }
+    }
+  }, []);
 
   const signOut = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Sign out of Google
+      try {
+        await GoogleSignin.signOut();
+      } catch (e) {
+        // Ignore Google sign out errors
+      }
       await api.logout();
       setUser(null);
     } finally {
