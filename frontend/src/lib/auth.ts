@@ -17,11 +17,11 @@ export async function checkAuth(): Promise<boolean> {
 /**
  * Synchronous auth check for immediate redirects.
  * This is a best-effort check - the real auth is handled by the backend.
- * We use a session storage flag set after successful login.
+ * We use localStorage (persists across browser restarts) with backend sync.
  */
 export function isAuthenticated(): boolean {
   if (typeof window === 'undefined') return false;
-  return sessionStorage.getItem('authenticated') === 'true';
+  return localStorage.getItem('authenticated') === 'true';
 }
 
 /**
@@ -29,7 +29,7 @@ export function isAuthenticated(): boolean {
  */
 export function setAuthenticated(): void {
   if (typeof window !== 'undefined') {
-    sessionStorage.setItem('authenticated', 'true');
+    localStorage.setItem('authenticated', 'true');
   }
 }
 
@@ -38,8 +38,23 @@ export function setAuthenticated(): void {
  */
 export function clearAuth(): void {
   if (typeof window !== 'undefined') {
-    sessionStorage.removeItem('authenticated');
+    localStorage.removeItem('authenticated');
   }
+}
+
+/**
+ * Initialize auth state on app load.
+ * Syncs the localStorage flag with the actual backend auth state.
+ * This ensures the flag is accurate after browser restarts.
+ */
+export async function initAuth(): Promise<boolean> {
+  const isAuthed = await checkAuth();
+  if (isAuthed) {
+    setAuthenticated();
+  } else {
+    clearAuth();
+  }
+  return isAuthed;
 }
 
 /**

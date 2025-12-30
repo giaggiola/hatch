@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { AuthProvider } from '@/contexts/AuthContext';
 import { QueryProvider } from '@/lib/query';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -44,9 +45,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <QueryProvider>
-          <ThemeProvider>
-            <main className="min-h-screen">{children}</main>
-          </ThemeProvider>
+          <AuthProvider>
+            <ThemeProvider>
+              <main className="min-h-screen">{children}</main>
+            </ThemeProvider>
+          </AuthProvider>
         </QueryProvider>
       </body>
     </html>
