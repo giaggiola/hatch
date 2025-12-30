@@ -15,10 +15,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.hatch.app",
+      "bundleIdentifier": "com.giaggi92.hatch",
       "associatedDomains": [
+        "applinks:hatch.name-me.app",
         "applinks:hatch.name-me.app"
-      ]
+      ],
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -26,7 +30,7 @@
         "backgroundColor": "#fff5fb"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.hatch.app",
+      "package": "com.giaggi92.hatch",
       "intentFilters": [
         {
           "action": "VIEW",
