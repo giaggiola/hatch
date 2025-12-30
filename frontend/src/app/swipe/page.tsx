@@ -153,13 +153,11 @@ export default function SwipePage() {
         action: direction === 'right' ? 'like' : 'dismiss',
       });
 
-      // Similar variants: like if selected AND swiped right, dismiss otherwise
-      currentName.similar.forEach((variant) => {
+      // Only include selected variants (same action as main name)
+      currentSelections.forEach((variantId) => {
         swipes.push({
-          name_id: variant.id,
-          action: (direction === 'right' && currentSelections.has(variant.id))
-            ? 'like'
-            : 'dismiss',
+          name_id: variantId,
+          action: direction === 'right' ? 'like' : 'dismiss',
         });
       });
 
@@ -198,11 +196,11 @@ export default function SwipePage() {
     const lastAction = swipeHistory[swipeHistory.length - 1];
     const prevName = names[lastAction.index];
 
-    // Delete the swipes from backend (main name + all similar variants)
+    // Delete the swipes from backend (main name + selected variants only)
     if (prevName) {
       api.deleteSwipe(prevName.id).catch(console.error);
-      prevName.similar.forEach((variant) => {
-        api.deleteSwipe(variant.id).catch(console.error);
+      lastAction.selections.forEach((variantId) => {
+        api.deleteSwipe(variantId).catch(console.error);
       });
     }
 
