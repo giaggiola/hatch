@@ -114,17 +114,15 @@ export default function SwipeScreen() {
       seenIds.add(currentName.id);
       swipes.push({ name_id: currentName.id, action });
 
-      // Similar variants: like if selected AND swiped right, dismiss otherwise
-      currentName.similar.forEach((variant) => {
+      // Only include selected variants (same action as main name)
+      variants.forEach((variantId) => {
         // Skip if we've already added this name_id (handles duplicate similar names)
-        if (seenIds.has(variant.id)) return;
-        seenIds.add(variant.id);
+        if (seenIds.has(variantId)) return;
+        seenIds.add(variantId);
 
         swipes.push({
-          name_id: variant.id,
-          action: (action === 'like' && variants.has(variant.id))
-            ? 'like'
-            : 'dismiss',
+          name_id: variantId,
+          action,
         });
       });
 
@@ -157,9 +155,9 @@ export default function SwipeScreen() {
       // Delete the swipe from backend - await to ensure consistency
       await api.deleteSwipe(lastSwipe.name.id);
 
-      // Also delete all similar variant swipes (we send all variants in batch)
+      // Only delete selected variant swipes (not all variants)
       await Promise.all(
-        lastSwipe.name.similar.map((variant) => api.deleteSwipe(variant.id))
+        Array.from(lastSwipe.selectedVariants).map((variantId) => api.deleteSwipe(variantId))
       );
 
       // Restore state only after successful deletion
