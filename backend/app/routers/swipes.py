@@ -250,7 +250,8 @@ async def get_swipes(
         # Case-insensitive prefix search
         query = query.where(Name.name.ilike(f"{search}%"))
 
-    query = query.order_by(Swipe.created_at.desc()).limit(limit).offset(offset)
+    # Sort alphabetically by name for consistent pagination UX
+    query = query.order_by(Name.name.asc()).limit(limit).offset(offset)
 
     result = await db.execute(query)
     rows = result.fetchall()
@@ -274,7 +275,7 @@ async def get_swipe_counts(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get total counts for likes and dismisses."""
+    """Get total counts for likes, dismisses, and matches."""
     likes_result = await db.execute(
         select(func.count()).where(
             Swipe.user_id == current_user.id,
@@ -291,9 +292,30 @@ async def get_swipe_counts(
     )
     dismisses_count = dismisses_result.scalar() or 0
 
+    # Count matches (names liked by both partners)
+    matches_count = 0
+    if current_user.couple_id:
+        from sqlalchemy import text
+        matches_result = await db.execute(
+            text("""
+                SELECT COUNT(DISTINCT n.id)
+                FROM names n
+                JOIN swipes s1 ON n.id = s1.name_id
+                JOIN swipes s2 ON n.id = s2.name_id
+                    AND s1.couple_id = s2.couple_id
+                    AND s1.user_id != s2.user_id
+                WHERE s1.couple_id = :couple_id
+                    AND s1.action = 'like'
+                    AND s2.action = 'like'
+            """),
+            {"couple_id": current_user.couple_id}
+        )
+        matches_count = matches_result.scalar() or 0
+
     return {
         "likes": likes_count,
         "dismisses": dismisses_count,
+        "matches": matches_count,
     }
 
 

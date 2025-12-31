@@ -80,9 +80,12 @@ export default function SwipeScreen() {
       // Schedule refetch for when mutations complete
       refetchScheduledRef.current = true;
     } else {
-      // Safe to refetch now - clear local tracking since backend is up to date
-      setLocallySwipedIds(new Set());
-      refetch();
+      // Safe to refetch now - but DON'T clear locallySwipedIds until refetch completes
+      // This prevents the flash where old names briefly reappear
+      refetch().then(() => {
+        // Only clear after new data has arrived
+        setLocallySwipedIds(new Set());
+      });
     }
   }, [refetch]);
 
@@ -120,8 +123,10 @@ export default function SwipeScreen() {
       // If all mutations done and refetch was scheduled, do it now
       if (pendingMutationsRef.current === 0 && refetchScheduledRef.current) {
         refetchScheduledRef.current = false;
-        setLocallySwipedIds(new Set());
+        // DON'T clear locallySwipedIds until refetch completes to prevent flash
         refetch().then(() => {
+          // Only clear after new data has arrived
+          setLocallySwipedIds(new Set());
           // Invalidate caches after refetch completes
           queryClient.invalidateQueries({ queryKey: ['swipes'] });
           queryClient.invalidateQueries({ queryKey: ['matches'] });
@@ -250,8 +255,10 @@ export default function SwipeScreen() {
               <TouchableOpacity
                 style={[styles.refreshButton, { backgroundColor: colors.primary }]}
                 onPress={() => {
-                  setLocallySwipedIds(new Set());
-                  refetch();
+                  // Clear AFTER refetch completes to prevent flash
+                  refetch().then(() => {
+                    setLocallySwipedIds(new Set());
+                  });
                 }}
               >
                 <Text style={styles.refreshButtonText}>Refresh</Text>

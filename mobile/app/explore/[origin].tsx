@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { api } from '@/lib/api';
@@ -34,8 +35,15 @@ export default function OriginDetailScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
+  // Refetch swipes when screen gains focus (e.g., coming back from other screens)
+  useFocusEffect(
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ['allSwipes'] });
+    }, [queryClient])
+  );
+
   // Fetch existing swipes to show correct liked/dismissed status
-  const { data: existingSwipes } = useQuery({
+  const { data: existingSwipes, isLoading: swipesLoading } = useQuery({
     queryKey: ['allSwipes'],
     queryFn: async () => {
       // Fetch both likes and dismisses
@@ -45,6 +53,7 @@ export default function OriginDetailScreen() {
       ]);
       return { likes, dismisses };
     },
+    staleTime: 0, // Always consider data stale to ensure fresh data
   });
 
   // Initialize swipedNames from existing swipes
@@ -68,7 +77,7 @@ export default function OriginDetailScreen() {
     }
   }, [existingSwipes]);
 
-  const { isLoading } = useQuery({
+  const { isLoading: namesLoading } = useQuery({
     queryKey: ['namesByOrigin', origin],
     queryFn: async () => {
       const data = await api.getNamesByOrigin(origin || '', PAGE_SIZE, 0);
@@ -78,6 +87,9 @@ export default function OriginDetailScreen() {
     },
     enabled: !!origin,
   });
+
+  // Wait for both names and swipes to load before showing content
+  const isLoading = namesLoading || swipesLoading;
 
   const loadMore = useCallback(async () => {
     if (isLoadingMore || !hasMore || !origin) return;

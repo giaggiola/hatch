@@ -65,7 +65,7 @@ async def get_matches(
             AND s2.action = 'like'
             {search_condition}
         GROUP BY n.id
-        ORDER BY matched_at DESC
+        ORDER BY n.name ASC
         LIMIT :limit OFFSET :offset
     """)
 

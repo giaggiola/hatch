@@ -120,10 +120,14 @@ export default function HistoryScreen() {
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
       await queryClient.cancelQueries({ queryKey: ['swipes'] });
 
+      // Query keys must match exactly - include debouncedSearch
+      const likesKey = ['swipes', 'like', 'infinite', debouncedSearch] as const;
+      const dismissesKey = ['swipes', 'dismiss', 'infinite', debouncedSearch] as const;
+
       // Snapshot the previous values
-      const previousLikes = queryClient.getQueryData<InfiniteData<Swipe[]>>(['swipes', 'like', 'infinite']);
-      const previousDismisses = queryClient.getQueryData<InfiniteData<Swipe[]>>(['swipes', 'dismiss', 'infinite']);
-      const previousCounts = queryClient.getQueryData<{ likes: number; dismisses: number }>(['swipeCounts']);
+      const previousLikes = queryClient.getQueryData<InfiniteData<Swipe[]>>(likesKey);
+      const previousDismisses = queryClient.getQueryData<InfiniteData<Swipe[]>>(dismissesKey);
+      const previousCounts = queryClient.getQueryData<{ likes: number; dismisses: number; matches: number }>(['swipeCounts']);
 
       // Find the item being moved
       const sourceData = action === 'dismiss' ? previousLikes : previousDismisses;
@@ -131,30 +135,36 @@ export default function HistoryScreen() {
 
       // Optimistically update: remove from source list
       if (action === 'dismiss' && previousLikes) {
-        queryClient.setQueryData<InfiniteData<Swipe[]>>(['swipes', 'like', 'infinite'], {
+        queryClient.setQueryData<InfiniteData<Swipe[]>>(likesKey, {
           ...previousLikes,
           pages: previousLikes.pages.map(page => page.filter(s => s.name_id !== nameId)),
         });
       } else if (action === 'like' && previousDismisses) {
-        queryClient.setQueryData<InfiniteData<Swipe[]>>(['swipes', 'dismiss', 'infinite'], {
+        queryClient.setQueryData<InfiniteData<Swipe[]>>(dismissesKey, {
           ...previousDismisses,
           pages: previousDismisses.pages.map(page => page.filter(s => s.name_id !== nameId)),
         });
       }
 
-      // Optimistically add to destination list
-      if (movedItem) {
+      // Optimistically add to destination list (only if not searching, to avoid wrong position)
+      if (movedItem && !debouncedSearch) {
         const updatedItem = { ...movedItem, action };
-        if (action === 'like' && previousLikes) {
-          queryClient.setQueryData<InfiniteData<Swipe[]>>(['swipes', 'like', 'infinite'], {
-            ...previousLikes,
-            pages: previousLikes.pages.map((page, idx) => idx === 0 ? [updatedItem, ...page] : page),
-          });
-        } else if (action === 'dismiss' && previousDismisses) {
-          queryClient.setQueryData<InfiniteData<Swipe[]>>(['swipes', 'dismiss', 'infinite'], {
-            ...previousDismisses,
-            pages: previousDismisses.pages.map((page, idx) => idx === 0 ? [updatedItem, ...page] : page),
-          });
+        if (action === 'like') {
+          const currentLikes = queryClient.getQueryData<InfiniteData<Swipe[]>>(likesKey);
+          if (currentLikes) {
+            queryClient.setQueryData<InfiniteData<Swipe[]>>(likesKey, {
+              ...currentLikes,
+              pages: currentLikes.pages.map((page, idx) => idx === 0 ? [updatedItem, ...page] : page),
+            });
+          }
+        } else if (action === 'dismiss') {
+          const currentDismisses = queryClient.getQueryData<InfiniteData<Swipe[]>>(dismissesKey);
+          if (currentDismisses) {
+            queryClient.setQueryData<InfiniteData<Swipe[]>>(dismissesKey, {
+              ...currentDismisses,
+              pages: currentDismisses.pages.map((page, idx) => idx === 0 ? [updatedItem, ...page] : page),
+            });
+          }
         }
       }
 
@@ -166,45 +176,41 @@ export default function HistoryScreen() {
         });
       }
 
-      return { previousLikes, previousDismisses, previousCounts };
+      return { previousLikes, previousDismisses, previousCounts, likesKey, dismissesKey };
     },
     onError: (_err, _variables, context) => {
       // Roll back to previous values on error
-      if (context?.previousLikes) {
-        queryClient.setQueryData(['swipes', 'like', 'infinite'], context.previousLikes);
+      if (context?.previousLikes && context.likesKey) {
+        queryClient.setQueryData(context.likesKey, context.previousLikes);
       }
-      if (context?.previousDismisses) {
-        queryClient.setQueryData(['swipes', 'dismiss', 'infinite'], context.previousDismisses);
+      if (context?.previousDismisses && context.dismissesKey) {
+        queryClient.setQueryData(context.dismissesKey, context.previousDismisses);
       }
       if (context?.previousCounts) {
         queryClient.setQueryData(['swipeCounts'], context.previousCounts);
       }
     },
     onSettled: () => {
-      // Invalidate matches and close calls since they might have changed
+      // Invalidate to sync with server (handles search results, ordering, etc.)
+      queryClient.invalidateQueries({ queryKey: ['swipes'] });
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
     },
   });
 
-  // Flatten and sort data alphabetically (search is handled server-side)
+  // Flatten paginated data (already sorted alphabetically by backend)
   const sortedLikes = useMemo(() => {
     const allLikes = likesData?.pages.flat() || [];
-    return allLikes
-      .filter((s) => s.name)
-      .sort((a, b) => (a.name?.name || '').localeCompare(b.name?.name || ''));
+    return allLikes.filter((s) => s.name);
   }, [likesData]);
 
   const sortedDismisses = useMemo(() => {
     const allDismisses = dismissesData?.pages.flat() || [];
-    return allDismisses
-      .filter((s) => s.name)
-      .sort((a, b) => (a.name?.name || '').localeCompare(b.name?.name || ''));
+    return allDismisses.filter((s) => s.name);
   }, [dismissesData]);
 
   const sortedMatches = useMemo(() => {
-    const allMatches = matchesData?.pages.flat() || [];
-    return [...allMatches].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    return matchesData?.pages.flat() || [];
   }, [matchesData]);
 
   const handleNamePress = (nameId: string) => {
@@ -465,7 +471,7 @@ export default function HistoryScreen() {
               onPress={() => setActiveTab('matches')}
             >
               <Text style={[styles.statNumber, { color: colors.primary }]}>
-                {sortedMatches.length}
+                {counts?.matches ?? sortedMatches.length}
               </Text>
               <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Matches</Text>
             </TouchableOpacity>

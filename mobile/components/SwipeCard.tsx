@@ -46,7 +46,7 @@ function VariantPill({ variant, isMale, colors, colorScheme }: VariantPillProps)
   const hasExistingSwipe = swipeData?.action !== null && swipeData?.action !== undefined;
 
   // Mutation to like the variant
-  const mutation = useMutation({
+  const likeMutation = useMutation({
     mutationFn: async () => {
       if (hasExistingSwipe) {
         return api.updateSwipe(variant.id, 'like');
@@ -69,8 +69,28 @@ function VariantPill({ variant, isMale, colors, colorScheme }: VariantPillProps)
     },
   });
 
-  const handleLike = useCallback(() => {
-    if (isLiked || mutation.isPending) return;
+  // Mutation to unlike (delete) the variant
+  const unlikeMutation = useMutation({
+    mutationFn: async () => {
+      return api.deleteSwipe(variant.id);
+    },
+    onMutate: () => {
+      setOptimisticLiked(false);
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(['swipeStatus', variant.id], { action: null });
+      setOptimisticLiked(null);
+      queryClient.invalidateQueries({ queryKey: ['swipes'] });
+      queryClient.invalidateQueries({ queryKey: ['swipeNames'] });
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+    },
+    onError: () => {
+      setOptimisticLiked(null);
+    },
+  });
+
+  const handleToggle = useCallback(() => {
+    if (likeMutation.isPending || unlikeMutation.isPending) return;
 
     // Animate heart bounce
     heartScale.value = withSequence(
@@ -78,8 +98,12 @@ function VariantPill({ variant, isMale, colors, colorScheme }: VariantPillProps)
       withSpring(1, { damping: 10, stiffness: 300 })
     );
 
-    mutation.mutate();
-  }, [isLiked, mutation, heartScale]);
+    if (isLiked) {
+      unlikeMutation.mutate();
+    } else {
+      likeMutation.mutate();
+    }
+  }, [isLiked, likeMutation, unlikeMutation, heartScale]);
 
   const heartStyle = useAnimatedStyle(() => ({
     transform: [{ scale: heartScale.value }],
@@ -102,9 +126,8 @@ function VariantPill({ variant, isMale, colors, colorScheme }: VariantPillProps)
     >
       <Pressable
         style={styles.variantHeartButton}
-        onPress={handleLike}
+        onPress={handleToggle}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        disabled={isLiked}
       >
         <Animated.View style={heartStyle}>
           <FontAwesome

@@ -298,7 +298,7 @@ class ApiClient {
   }
 
   async getSwipeCounts() {
-    return this.request<{ likes: number; dismisses: number }>('/swipes/counts');
+    return this.request<{ likes: number; dismisses: number; matches: number }>('/swipes/counts');
   }
 
   async updateSwipe(name_id: string, action: 'like' | 'dismiss') {
