@@ -152,63 +152,60 @@ export default function OriginDetailScreen() {
     const isLiked = swipeStatus === 'like';
     const badge = getGenderBadge(item.gender);
 
+    const handleHeartPress = () => {
+      // Toggle: if liked, unlike (delete swipe); if not liked, like
+      if (isLiked) {
+        // Remove the like by deleting the swipe
+        setSwipedNames(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(item.id);
+          return newMap;
+        });
+        api.deleteSwipe(item.id).then(() => {
+          queryClient.invalidateQueries({ queryKey: ['swipes'] });
+          queryClient.invalidateQueries({ queryKey: ['allSwipes'] });
+        });
+      } else {
+        handleSwipe(item, 'like');
+      }
+    };
+
     return (
-      <View
+      <TouchableOpacity
         style={[
           styles.nameCard,
           { backgroundColor: colors.surface },
           isLiked && { borderColor: colors.primary, borderWidth: 2 },
-          swipeStatus === 'dismiss' && { opacity: 0.5 },
         ]}
+        onPress={() => handleNamePress(item)}
+        activeOpacity={0.7}
       >
-        <TouchableOpacity
-          style={styles.nameInfo}
-          onPress={() => handleNamePress(item)}
-        >
-          <Text style={[styles.nameText, { color: colors.text }]}>{item.name}</Text>
-          <View style={[styles.genderBadge, { backgroundColor: badge.bg }]}>
-            <Text style={[styles.genderBadgeText, { color: badge.text }]}>{badge.label}</Text>
+        <View style={styles.nameHeader}>
+          <View style={styles.nameInfo}>
+            <Text style={[styles.nameText, { color: colors.text }]}>{item.name}</Text>
+            <View style={[styles.genderBadge, { backgroundColor: badge.bg }]}>
+              <Text style={[styles.genderBadgeText, { color: badge.text }]}>{badge.label}</Text>
+            </View>
           </View>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.heartButton}
+            onPress={handleHeartPress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <FontAwesome
+              name={isLiked ? 'heart' : 'heart-o'}
+              size={20}
+              color={colors.primary}
+            />
+          </TouchableOpacity>
+        </View>
 
         {item.meaning && (
           <Text style={[styles.meaningText, { color: colors.textSecondary }]} numberOfLines={2}>
             {item.meaning}
           </Text>
         )}
-
-        {!swipeStatus ? (
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: colors.border }]}
-              onPress={() => handleSwipe(item, 'like')}
-            >
-              <FontAwesome name="heart-o" size={18} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: colors.border }]}
-              onPress={() => handleSwipe(item, 'dismiss')}
-            >
-              <FontAwesome name="times" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.statusIndicator}>
-            <View
-              style={[
-                styles.statusIcon,
-                { backgroundColor: isLiked ? colors.primary : colors.border },
-              ]}
-            >
-              <FontAwesome
-                name={isLiked ? 'heart' : 'times'}
-                size={16}
-                color={isLiked ? '#ffffff' : colors.textSecondary}
-              />
-            </View>
-          </View>
-        )}
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -391,11 +388,22 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     marginBottom: Spacing.sm,
   },
-  nameInfo: {
+  nameHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: Spacing.xs,
+  },
+  nameInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+  },
+  heartButton: {
+    padding: Spacing.xs,
+    marginLeft: Spacing.xs,
   },
   nameText: {
     fontSize: FontSizes.lg,

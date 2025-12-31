@@ -1,10 +1,11 @@
-import React, { useMemo, useCallback, memo } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Pressable } from 'react-native';
+import React, { useMemo, useCallback, memo, useState } from 'react';
+import { View, Text, StyleSheet, Dimensions, Pressable, TouchableOpacity } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withSequence,
   runOnJS,
   interpolate,
   Extrapolation,
@@ -12,10 +13,118 @@ import Animated, {
 import { useRouter } from 'expo-router';
 import * as Speech from 'expo-speech';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { NameWithSimilar } from '@/types';
+import { NameWithSimilar, SimilarName } from '@/types';
 import { Colors, Spacing, FontSizes, BorderRadius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
+import { api } from '@/lib/api';
+
+// Animated variant pill component with like status check
+interface VariantPillProps {
+  variant: SimilarName;
+  isMale: boolean;
+  colors: typeof Colors.light;
+  colorScheme: 'light' | 'dark' | null | undefined;
+}
+
+function VariantPill({ variant, isMale, colors, colorScheme }: VariantPillProps) {
+  const queryClient = useQueryClient();
+  const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
+  const heartScale = useSharedValue(1);
+
+  // Fetch swipe status for this variant
+  const { data: swipeData } = useQuery({
+    queryKey: ['swipeStatus', variant.id],
+    queryFn: () => api.checkSwipeStatus(variant.id),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Determine if liked from server or optimistic state
+  const serverLiked = swipeData?.action === 'like';
+  const isLiked = optimisticLiked ?? serverLiked;
+  const hasExistingSwipe = swipeData?.action !== null && swipeData?.action !== undefined;
+
+  // Mutation to like the variant
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (hasExistingSwipe) {
+        return api.updateSwipe(variant.id, 'like');
+      } else {
+        return api.createSwipe(variant.id, 'like');
+      }
+    },
+    onMutate: () => {
+      setOptimisticLiked(true);
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(['swipeStatus', variant.id], { action: 'like' });
+      setOptimisticLiked(null);
+      queryClient.invalidateQueries({ queryKey: ['swipes'] });
+      queryClient.invalidateQueries({ queryKey: ['swipeNames'] });
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+    },
+    onError: () => {
+      setOptimisticLiked(null);
+    },
+  });
+
+  const handleLike = useCallback(() => {
+    if (isLiked || mutation.isPending) return;
+
+    // Animate heart bounce
+    heartScale.value = withSequence(
+      withSpring(1.4, { damping: 8, stiffness: 400 }),
+      withSpring(1, { damping: 10, stiffness: 300 })
+    );
+
+    mutation.mutate();
+  }, [isLiked, mutation, heartScale]);
+
+  const heartStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: heartScale.value }],
+  }));
+
+  const accentColor = isMale ? '#3b82f6' : '#ec4899';
+
+  return (
+    <View
+      style={[
+        styles.variantButton,
+        {
+          backgroundColor: isLiked
+            ? (isMale ? '#eff6ff' : '#fdf2f8')
+            : (colorScheme === 'dark' ? colors.border : '#f9fafb'),
+          borderColor: isLiked ? accentColor : 'transparent',
+          borderWidth: 2,
+        },
+      ]}
+    >
+      <Pressable
+        style={styles.variantHeartButton}
+        onPress={handleLike}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        disabled={isLiked}
+      >
+        <Animated.View style={heartStyle}>
+          <FontAwesome
+            name={isLiked ? 'heart' : 'heart-o'}
+            size={14}
+            color={accentColor}
+          />
+        </Animated.View>
+      </Pressable>
+      <Text
+        style={[styles.variantName, { color: isLiked ? accentColor : colors.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+      >
+        {variant.name}
+      </Text>
+    </View>
+  );
+}
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
@@ -25,11 +134,9 @@ interface SwipeCardProps {
   name: NameWithSimilar;
   onSwipe: (action: 'like' | 'dismiss') => void;
   isTop: boolean;
-  onLikeVariant?: (variantId: string) => void;
-  likedVariantIds?: Set<string>;
 }
 
-function SwipeCardComponent({ name, onSwipe, isTop, onLikeVariant, likedVariantIds }: SwipeCardProps) {
+function SwipeCardComponent({ name, onSwipe, isTop }: SwipeCardProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
@@ -113,18 +220,17 @@ function SwipeCardComponent({ name, onSwipe, isTop, onLikeVariant, likedVariantI
   const isMale = name.gender === 'M';
   const gradientColors = isMale ? ['#3b82f6', '#2563eb'] : ['#ec4899', '#db2777'];
 
-  // Memoize: Dedupe, filter out liked, and take first 5 similar names for display
+  // Memoize: Dedupe and take first 5 similar names for display
   const displayedVariants = useMemo(() => {
     const seenIds = new Set<string>();
     return name.similar
       .filter((v) => {
         if (seenIds.has(v.id)) return false;
-        if (likedVariantIds?.has(v.id)) return false; // Hide liked variants
         seenIds.add(v.id);
         return true;
       })
       .slice(0, 5);
-  }, [name.similar, likedVariantIds]);
+  }, [name.similar]);
 
   // Memoize: Dynamic font size based on name length
   const nameFontSize = useMemo(() => {
@@ -174,42 +280,15 @@ function SwipeCardComponent({ name, onSwipe, isTop, onLikeVariant, likedVariantI
         <View style={styles.variantsSection}>
           {displayedVariants.length > 0 ? (
             <View style={styles.variantsGrid}>
-              {displayedVariants.map((variant) => {
-                return (
-                  <View
-                    key={variant.id}
-                    style={[
-                      styles.variantButton,
-                      {
-                        backgroundColor: colorScheme === 'dark' ? colors.border : '#f9fafb',
-                        borderColor: 'transparent',
-                        borderWidth: 2,
-                      },
-                    ]}
-                  >
-                    {/* Heart button to like variant */}
-                    <TouchableOpacity
-                      style={styles.variantHeartButton}
-                      onPress={() => onLikeVariant?.(variant.id)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <FontAwesome
-                        name="heart-o"
-                        size={14}
-                        color={isMale ? '#3b82f6' : '#ec4899'}
-                      />
-                    </TouchableOpacity>
-                    <Text
-                      style={[styles.variantName, { color: colors.text }]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.8}
-                    >
-                      {variant.name}
-                    </Text>
-                  </View>
-                );
-              })}
+              {displayedVariants.map((variant) => (
+                <VariantPill
+                  key={variant.id}
+                  variant={variant}
+                  isMale={isMale}
+                  colors={colors}
+                  colorScheme={colorScheme}
+                />
+              ))}
             </View>
           ) : (
             <View style={styles.noVariants}>
@@ -351,8 +430,6 @@ export const SwipeCard = memo(SwipeCardComponent, (prev, next) => {
   return (
     prev.name.id === next.name.id &&
     prev.isTop === next.isTop &&
-    prev.likedVariantIds === next.likedVariantIds &&
-    prev.onSwipe === next.onSwipe &&
-    prev.onLikeVariant === next.onLikeVariant
+    prev.onSwipe === next.onSwipe
   );
 });

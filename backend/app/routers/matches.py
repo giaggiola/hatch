@@ -10,6 +10,7 @@ router = APIRouter(prefix="/matches", tags=["matches"])
 
 @router.get("")
 async def get_matches_endpoint(
+    search: str | None = Query(default=None, description="Search matches by name prefix"),
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -24,6 +25,7 @@ async def get_matches_endpoint(
         couple_id=current_user.couple_id,
         limit=limit,
         offset=offset,
+        search=search,
     )
     return matches
 

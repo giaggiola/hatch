@@ -34,10 +34,16 @@ async def get_matches(
     couple_id: str,
     limit: int = 50,
     offset: int = 0,
+    search: Optional[str] = None,
 ) -> List[Dict]:
     """Get all matched names for a couple with aggregated country data"""
+    # Build search condition if provided
+    search_condition = ""
+    if search:
+        search_condition = "AND n.name LIKE :search"
+
     # Find names where both users in couple liked, with popularity data
-    query = text("""
+    query = text(f"""
         SELECT
             n.id,
             n.name,
@@ -57,15 +63,17 @@ async def get_matches(
         WHERE s1.couple_id = :couple_id
             AND s1.action = 'like'
             AND s2.action = 'like'
+            {search_condition}
         GROUP BY n.id
         ORDER BY matched_at DESC
         LIMIT :limit OFFSET :offset
     """)
 
-    result = await db.execute(
-        query,
-        {"couple_id": couple_id, "limit": limit, "offset": offset}
-    )
+    params = {"couple_id": couple_id, "limit": limit, "offset": offset}
+    if search:
+        params["search"] = f"{search}%"
+
+    result = await db.execute(query, params)
 
     rows = result.fetchall()
     matches = []

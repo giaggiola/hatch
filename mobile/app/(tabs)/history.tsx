@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,15 @@ export default function HistoryScreen() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabType>('matches');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search query to avoid too many API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Refetch counts when tab gains focus (e.g., coming back from swipe screen)
   useFocusEffect(
@@ -52,8 +61,8 @@ export default function HistoryScreen() {
     isFetchingNextPage: isFetchingMoreLikes,
     isLoading: likesLoading,
   } = useInfiniteQuery({
-    queryKey: ['swipes', 'like', 'infinite'],
-    queryFn: ({ pageParam = 0 }) => api.getSwipes('like', PAGE_SIZE, pageParam),
+    queryKey: ['swipes', 'like', 'infinite', debouncedSearch],
+    queryFn: ({ pageParam = 0 }) => api.getSwipes('like', PAGE_SIZE, pageParam, debouncedSearch || undefined),
     getNextPageParam: (lastPage, allPages) => {
       if (lastPage.length < PAGE_SIZE) return undefined;
       return allPages.length * PAGE_SIZE;
@@ -70,8 +79,8 @@ export default function HistoryScreen() {
     isFetchingNextPage: isFetchingMoreDismisses,
     isLoading: dismissesLoading,
   } = useInfiniteQuery({
-    queryKey: ['swipes', 'dismiss', 'infinite'],
-    queryFn: ({ pageParam = 0 }) => api.getSwipes('dismiss', PAGE_SIZE, pageParam),
+    queryKey: ['swipes', 'dismiss', 'infinite', debouncedSearch],
+    queryFn: ({ pageParam = 0 }) => api.getSwipes('dismiss', PAGE_SIZE, pageParam, debouncedSearch || undefined),
     getNextPageParam: (lastPage, allPages) => {
       if (lastPage.length < PAGE_SIZE) return undefined;
       return allPages.length * PAGE_SIZE;
@@ -88,8 +97,8 @@ export default function HistoryScreen() {
     isFetchingNextPage: isFetchingMoreMatches,
     isLoading: matchesLoading,
   } = useInfiniteQuery({
-    queryKey: ['matches', 'infinite'],
-    queryFn: ({ pageParam = 0 }) => api.getMatches(PAGE_SIZE, pageParam),
+    queryKey: ['matches', 'infinite', debouncedSearch],
+    queryFn: ({ pageParam = 0 }) => api.getMatches(PAGE_SIZE, pageParam, debouncedSearch || undefined),
     getNextPageParam: (lastPage, allPages) => {
       if (lastPage.length < PAGE_SIZE) return undefined;
       return allPages.length * PAGE_SIZE;
@@ -178,30 +187,25 @@ export default function HistoryScreen() {
     },
   });
 
-  // Flatten, filter by search, and sort data alphabetically
+  // Flatten and sort data alphabetically (search is handled server-side)
   const sortedLikes = useMemo(() => {
     const allLikes = likesData?.pages.flat() || [];
-    const query = searchQuery.toLowerCase().trim();
     return allLikes
-      .filter((s) => s.name && (!query || s.name.name.toLowerCase().includes(query)))
+      .filter((s) => s.name)
       .sort((a, b) => (a.name?.name || '').localeCompare(b.name?.name || ''));
-  }, [likesData, searchQuery]);
+  }, [likesData]);
 
   const sortedDismisses = useMemo(() => {
     const allDismisses = dismissesData?.pages.flat() || [];
-    const query = searchQuery.toLowerCase().trim();
     return allDismisses
-      .filter((s) => s.name && (!query || s.name.name.toLowerCase().includes(query)))
+      .filter((s) => s.name)
       .sort((a, b) => (a.name?.name || '').localeCompare(b.name?.name || ''));
-  }, [dismissesData, searchQuery]);
+  }, [dismissesData]);
 
   const sortedMatches = useMemo(() => {
     const allMatches = matchesData?.pages.flat() || [];
-    const query = searchQuery.toLowerCase().trim();
-    return [...allMatches]
-      .filter((m) => !query || m.name.toLowerCase().includes(query))
-      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [matchesData, searchQuery]);
+    return [...allMatches].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [matchesData]);
 
   const handleNamePress = (nameId: string) => {
     router.push(`/name/${nameId}`);

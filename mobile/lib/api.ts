@@ -290,9 +290,10 @@ class ApiClient {
     });
   }
 
-  async getSwipes(action?: 'like' | 'dismiss', limit = 50, offset = 0) {
+  async getSwipes(action?: 'like' | 'dismiss', limit = 50, offset = 0, search?: string) {
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (action) params.append('action', action);
+    if (search) params.append('search', search);
     return this.request<Swipe[]>(`/swipes?${params}`);
   }
 
@@ -312,8 +313,10 @@ class ApiClient {
   }
 
   // Matches
-  async getMatches(limit = 50, offset = 0) {
-    return this.request<Match[]>(`/matches?limit=${limit}&offset=${offset}`);
+  async getMatches(limit = 50, offset = 0, search?: string) {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (search) params.append('search', search);
+    return this.request<Match[]>(`/matches?${params}`);
   }
 
   async getCloseCalls(limit = 20, minSimilarity = 0.75) {

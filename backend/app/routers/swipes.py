@@ -229,6 +229,7 @@ async def create_batch_swipes(
 @router.get("", response_model=list[SwipeResponse])
 async def get_swipes(
     action: Literal["like", "dismiss"] | None = None,
+    search: str | None = Query(default=None, description="Search names by prefix"),
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -244,6 +245,10 @@ async def get_swipes(
 
     if action:
         query = query.where(Swipe.action == action)
+
+    if search:
+        # Case-insensitive prefix search
+        query = query.where(Name.name.ilike(f"{search}%"))
 
     query = query.order_by(Swipe.created_at.desc()).limit(limit).offset(offset)
 

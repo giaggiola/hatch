@@ -35,8 +35,6 @@ export default function SwipeScreen() {
   const [showHint, setShowHint] = useState(false);
   // Track locally swiped IDs to filter out before backend confirms
   const [locallySwipedIds, setLocallySwipedIds] = useState<Set<string>>(new Set());
-  // Track liked variant IDs per main card (to hide them from display)
-  const [likedVariantIds, setLikedVariantIds] = useState<Map<string, Set<string>>>(new Map());
   // Track pending mutations to know when it's safe to refetch
   const pendingMutationsRef = useRef(0);
   const refetchScheduledRef = useRef(false);
@@ -138,28 +136,6 @@ export default function SwipeScreen() {
     },
   });
 
-  const handleLikeVariant = useCallback((nameId: string, variantId: string) => {
-    // Add to liked variants to hide from display
-    setLikedVariantIds((prev) => {
-      const newMap = new Map(prev);
-      const currentSet = newMap.get(nameId) || new Set<string>();
-      const newSet = new Set(currentSet);
-      newSet.add(variantId);
-      newMap.set(nameId, newSet);
-      return newMap;
-    });
-
-    // Also mark as locally swiped
-    setLocallySwipedIds((prev) => {
-      const newSet = new Set(prev);
-      newSet.add(variantId);
-      return newSet;
-    });
-
-    // Fire mutation to like this variant
-    batchSwipeMutation.mutate([{ name_id: variantId, action: 'like' }]);
-  }, [batchSwipeMutation]);
-
   const handleSwipe = useCallback(
     (action: 'like' | 'dismiss') => {
       if (availableNames.length === 0) return;
@@ -185,13 +161,6 @@ export default function SwipeScreen() {
         const newSet = new Set(prev);
         swipedIds.forEach(id => newSet.add(id));
         return newSet;
-      });
-
-      // Clear liked variants for this name
-      setLikedVariantIds((prev) => {
-        const newMap = new Map(prev);
-        newMap.delete(currentName.id);
-        return newMap;
       });
 
       // Fire mutation (non-blocking)
@@ -253,8 +222,6 @@ export default function SwipeScreen() {
 
   // Show top 2 available names for the card stack
   const currentNames = availableNames.slice(0, 2);
-  const currentName = currentNames[0];
-  const currentLikedVariants = currentName ? (likedVariantIds.get(currentName.id) || new Set<string>()) : new Set<string>();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -299,8 +266,6 @@ export default function SwipeScreen() {
                 name={name}
                 onSwipe={handleSwipe}
                 isTop={index === 0}
-                likedVariantIds={index === 0 ? currentLikedVariants : new Set<string>()}
-                onLikeVariant={(variantId) => handleLikeVariant(name.id, variantId)}
               />
             ))
             .reverse()
