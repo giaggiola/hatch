@@ -2,22 +2,22 @@
 
 import { useState } from 'react';
 import { motion, useMotionValue, useTransform, PanInfo, useAnimation } from 'framer-motion';
-import { Volume2 } from 'lucide-react';
+import { Volume2, Heart } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { NameWithSimilar } from '@/lib/api';
 
 interface SwipeCardWithSimilarProps {
   name: NameWithSimilar;
-  selectedVariants: Set<string>;
-  onToggleVariant: (variantId: string) => void;
+  likedVariantIds?: Set<string>;
+  onLikeVariant?: (variantId: string) => void;
   onSwipe: (direction: 'left' | 'right') => void;
   onExploreMore: () => void;
 }
 
 export default function SwipeCardWithSimilar({
   name,
-  selectedVariants,
-  onToggleVariant,
+  likedVariantIds,
+  onLikeVariant,
   onSwipe,
   onExploreMore,
 }: SwipeCardWithSimilarProps) {
@@ -54,11 +54,12 @@ export default function SwipeCardWithSimilar({
   };
 
   const isMale = name.gender === 'M';
-  // Dedupe and take first 5 similar names for display
+  // Dedupe, filter out liked, and take first 5 similar names for display
   const seenIds = new Set<string>();
   const displayedVariants = name.similar
     .filter((v) => {
       if (seenIds.has(v.id)) return false;
+      if (likedVariantIds?.has(v.id)) return false; // Hide liked variants
       seenIds.add(v.id);
       return true;
     })
@@ -141,33 +142,23 @@ export default function SwipeCardWithSimilar({
           {displayedVariants.length > 0 ? (
             <div className="grid grid-cols-3 gap-2">
               {displayedVariants.map((variant) => {
-                const isSelected = selectedVariants.has(variant.id);
                 return (
-                  <button
+                  <div
                     key={variant.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleVariant(variant.id);
-                    }}
-                    className={`rounded-xl px-2 py-2 transition-all relative h-14 flex items-center justify-center ${
-                      isSelected
-                        ? isMale
-                          ? 'bg-blue-50 dark:bg-blue-900/30 border-2 border-blue-500'
-                          : 'bg-pink-50 dark:bg-pink-900/30 border-2 border-pink-500'
-                        : 'bg-gray-50 dark:bg-gray-700 border-2 border-transparent hover:bg-gray-100 dark:hover:bg-gray-600'
-                    }`}
+                    className="rounded-xl px-2 py-2 bg-gray-50 dark:bg-gray-700 border-2 border-transparent relative h-14 flex items-center justify-center"
                   >
-                    {isSelected ? (
-                      <div className={`absolute -top-1 -right-1 ${isMale ? 'bg-blue-500' : 'bg-pink-500'} text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]`}>
-                        ✓
-                      </div>
-                    ) : (
-                      <div className="absolute -top-1 -right-1 border-2 border-gray-400 bg-white dark:bg-gray-600 text-gray-400 font-bold rounded-full w-4 h-4 flex items-center justify-center text-[10px]">
-                        +
-                      </div>
-                    )}
-                    <div className="font-medium text-gray-900 dark:text-white text-sm text-center leading-tight line-clamp-2">{variant.name}</div>
-                  </button>
+                    {/* Heart button to like variant */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onLikeVariant?.(variant.id);
+                      }}
+                      className="absolute top-1 right-1 p-1 hover:scale-110 transition-transform"
+                    >
+                      <Heart className={`w-3.5 h-3.5 ${isMale ? 'text-blue-500' : 'text-pink-500'}`} />
+                    </button>
+                    <div className="font-medium text-gray-900 dark:text-white text-sm text-center leading-tight whitespace-nowrap overflow-hidden text-ellipsis px-1">{variant.name}</div>
+                  </div>
                 );
               })}
             </div>

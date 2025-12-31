@@ -6,10 +6,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   FlatList,
+  TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient, InfiniteData } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { api } from '@/lib/api';
@@ -27,6 +29,14 @@ export default function HistoryScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabType>('matches');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Refetch counts when tab gains focus (e.g., coming back from swipe screen)
+  useFocusEffect(
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ['swipeCounts'] });
+    }, [queryClient])
+  );
 
   // Get total counts for display
   const { data: counts } = useQuery({
@@ -97,33 +107,101 @@ export default function HistoryScreen() {
   const updateSwipeMutation = useMutation({
     mutationFn: ({ nameId, action }: { nameId: string; action: 'like' | 'dismiss' }) =>
       api.updateSwipe(nameId, action),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['swipes'] });
-      queryClient.invalidateQueries({ queryKey: ['swipeCounts'] });
+    onMutate: async ({ nameId, action }) => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['swipes'] });
+
+      // Snapshot the previous values
+      const previousLikes = queryClient.getQueryData<InfiniteData<Swipe[]>>(['swipes', 'like', 'infinite']);
+      const previousDismisses = queryClient.getQueryData<InfiniteData<Swipe[]>>(['swipes', 'dismiss', 'infinite']);
+      const previousCounts = queryClient.getQueryData<{ likes: number; dismisses: number }>(['swipeCounts']);
+
+      // Find the item being moved
+      const sourceData = action === 'dismiss' ? previousLikes : previousDismisses;
+      const movedItem = sourceData?.pages.flat().find(s => s.name_id === nameId);
+
+      // Optimistically update: remove from source list
+      if (action === 'dismiss' && previousLikes) {
+        queryClient.setQueryData<InfiniteData<Swipe[]>>(['swipes', 'like', 'infinite'], {
+          ...previousLikes,
+          pages: previousLikes.pages.map(page => page.filter(s => s.name_id !== nameId)),
+        });
+      } else if (action === 'like' && previousDismisses) {
+        queryClient.setQueryData<InfiniteData<Swipe[]>>(['swipes', 'dismiss', 'infinite'], {
+          ...previousDismisses,
+          pages: previousDismisses.pages.map(page => page.filter(s => s.name_id !== nameId)),
+        });
+      }
+
+      // Optimistically add to destination list
+      if (movedItem) {
+        const updatedItem = { ...movedItem, action };
+        if (action === 'like' && previousLikes) {
+          queryClient.setQueryData<InfiniteData<Swipe[]>>(['swipes', 'like', 'infinite'], {
+            ...previousLikes,
+            pages: previousLikes.pages.map((page, idx) => idx === 0 ? [updatedItem, ...page] : page),
+          });
+        } else if (action === 'dismiss' && previousDismisses) {
+          queryClient.setQueryData<InfiniteData<Swipe[]>>(['swipes', 'dismiss', 'infinite'], {
+            ...previousDismisses,
+            pages: previousDismisses.pages.map((page, idx) => idx === 0 ? [updatedItem, ...page] : page),
+          });
+        }
+      }
+
+      // Optimistically update counts
+      if (previousCounts) {
+        queryClient.setQueryData(['swipeCounts'], {
+          likes: action === 'like' ? previousCounts.likes + 1 : previousCounts.likes - 1,
+          dismisses: action === 'dismiss' ? previousCounts.dismisses + 1 : previousCounts.dismisses - 1,
+        });
+      }
+
+      return { previousLikes, previousDismisses, previousCounts };
+    },
+    onError: (_err, _variables, context) => {
+      // Roll back to previous values on error
+      if (context?.previousLikes) {
+        queryClient.setQueryData(['swipes', 'like', 'infinite'], context.previousLikes);
+      }
+      if (context?.previousDismisses) {
+        queryClient.setQueryData(['swipes', 'dismiss', 'infinite'], context.previousDismisses);
+      }
+      if (context?.previousCounts) {
+        queryClient.setQueryData(['swipeCounts'], context.previousCounts);
+      }
+    },
+    onSettled: () => {
+      // Invalidate matches and close calls since they might have changed
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
     },
   });
 
-  // Flatten and sort data alphabetically
+  // Flatten, filter by search, and sort data alphabetically
   const sortedLikes = useMemo(() => {
     const allLikes = likesData?.pages.flat() || [];
+    const query = searchQuery.toLowerCase().trim();
     return allLikes
-      .filter((s) => s.name)
+      .filter((s) => s.name && (!query || s.name.name.toLowerCase().includes(query)))
       .sort((a, b) => (a.name?.name || '').localeCompare(b.name?.name || ''));
-  }, [likesData]);
+  }, [likesData, searchQuery]);
 
   const sortedDismisses = useMemo(() => {
     const allDismisses = dismissesData?.pages.flat() || [];
+    const query = searchQuery.toLowerCase().trim();
     return allDismisses
-      .filter((s) => s.name)
+      .filter((s) => s.name && (!query || s.name.name.toLowerCase().includes(query)))
       .sort((a, b) => (a.name?.name || '').localeCompare(b.name?.name || ''));
-  }, [dismissesData]);
+  }, [dismissesData, searchQuery]);
 
   const sortedMatches = useMemo(() => {
     const allMatches = matchesData?.pages.flat() || [];
-    return [...allMatches].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [matchesData]);
+    const query = searchQuery.toLowerCase().trim();
+    return [...allMatches]
+      .filter((m) => !query || m.name.toLowerCase().includes(query))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [matchesData, searchQuery]);
 
   const handleNamePress = (nameId: string) => {
     router.push(`/name/${nameId}`);
@@ -421,6 +499,27 @@ export default function HistoryScreen() {
         </View>
       </View>
 
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <View style={[styles.searchInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <FontAwesome name="search" size={16} color={colors.textSecondary} style={styles.searchIcon} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder="Search names..."
+            placeholderTextColor={colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+              <FontAwesome name="times-circle" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
       {/* Main List */}
       {isLoading ? (
         <View style={styles.loaderContainer}>
@@ -540,6 +639,29 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: FontSizes.xs,
     marginTop: Spacing.xs,
+  },
+  searchContainer: {
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+  },
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.md,
+    height: 44,
+  },
+  searchIcon: {
+    marginRight: Spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: FontSizes.md,
+    paddingVertical: Spacing.sm,
+  },
+  clearButton: {
+    padding: Spacing.xs,
   },
   listContent: {
     paddingTop: Spacing.md,

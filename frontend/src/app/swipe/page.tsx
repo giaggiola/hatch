@@ -11,8 +11,6 @@ import {
   saveSwipeState,
   loadSwipeState,
   clearSwipeState,
-  restoreSelectedVariants,
-  initializeSelections,
 } from '@/hooks/useSwipeState';
 import AppShell from '@/components/AppShell';
 import BottomNav from '@/components/BottomNav';
@@ -44,7 +42,7 @@ export default function SwipePage() {
   const [user, setUser] = useState<User | null>(null);
   const [names, setNames] = useState<NameWithSimilar[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [selectedVariants, setSelectedVariants] = useState<Map<string, Set<string>>>(new Map());
+  const [likedVariantIds, setLikedVariantIds] = useState<Map<string, Set<string>>>(new Map());
   const [matchedName, setMatchedName] = useState<Name | null>(null);
   const [showHint, setShowHint] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -78,7 +76,7 @@ export default function SwipePage() {
           // Restore from session storage
           setNames(savedState.names);
           setCurrentIndex(savedState.currentIndex);
-          setSelectedVariants(restoreSelectedVariants(savedState.selectedVariants));
+          // No need to restore liked variants - they're already processed
           clearSwipeState();
 
           // Still fetch user data
@@ -92,7 +90,6 @@ export default function SwipePage() {
           ]);
           setUser(userData);
           setNames(namesData);
-          setSelectedVariants(initializeSelections(namesData));
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -114,17 +111,6 @@ export default function SwipePage() {
         const newUniqueNames = moreNames.filter(n => !existingIds.has(n.id));
         return [...prev, ...newUniqueNames];
       });
-
-      // Initialize selections for new names
-      setSelectedVariants((prevSelections) => {
-        const newSelections = new Map(prevSelections);
-        moreNames.forEach((name) => {
-          if (!newSelections.has(name.id)) {
-            newSelections.set(name.id, new Set());
-          }
-        });
-        return newSelections;
-      });
     } catch (error) {
       console.error('Error loading more names:', error);
     }
@@ -135,30 +121,20 @@ export default function SwipePage() {
   const handleSwipe = async (direction: 'left' | 'right') => {
     if (!currentName) return;
 
-    const currentSelections = selectedVariants.get(currentName.id) || new Set();
-
     // Save to history for undo
     setSwipeHistory((prev) => [
       ...prev,
-      { index: currentIndex, selections: new Set(currentSelections) },
+      { index: currentIndex, selections: new Set() },
     ]);
 
     try {
-      // Build swipes: main name + selected similar variants
+      // Build swipes: only main name (variants are liked separately via heart button)
       const swipes: Array<{ name_id: string; action: 'like' | 'dismiss' }> = [];
 
       // Main name is always included based on swipe direction
       swipes.push({
         name_id: currentName.id,
         action: direction === 'right' ? 'like' : 'dismiss',
-      });
-
-      // Only include selected variants (same action as main name)
-      currentSelections.forEach((variantId) => {
-        swipes.push({
-          name_id: variantId,
-          action: direction === 'right' ? 'like' : 'dismiss',
-        });
       });
 
       const result = await api.createBatchSwipes(swipes);
@@ -175,6 +151,13 @@ export default function SwipePage() {
         console.error('Error recording swipe:', error);
       }
     }
+
+    // Clear liked variants for this card
+    setLikedVariantIds((prev) => {
+      const newMap = new Map(prev);
+      newMap.delete(currentName.id);
+      return newMap;
+    });
 
     setCurrentIndex((prev) => prev + 1);
 
@@ -196,56 +179,50 @@ export default function SwipePage() {
     const lastAction = swipeHistory[swipeHistory.length - 1];
     const prevName = names[lastAction.index];
 
-    // Delete the swipes from backend (main name + selected variants only)
+    // Delete the swipe from backend (only main name now)
     if (prevName) {
       api.deleteSwipe(prevName.id).catch(console.error);
-      lastAction.selections.forEach((variantId) => {
-        api.deleteSwipe(variantId).catch(console.error);
-      });
     }
 
     // Restore local state
     setSwipeHistory((prev) => prev.slice(0, -1));
     setCurrentIndex(lastAction.index);
-
-    if (prevName) {
-      setSelectedVariants((prev) => {
-        const restoredSelections = new Map(prev);
-        restoredSelections.set(prevName.id, lastAction.selections);
-        return restoredSelections;
-      });
-    }
   };
 
-  const handleToggleVariant = (variantId: string) => {
+  const handleLikeVariant = async (variantId: string) => {
     if (!currentName) return;
 
-    setSelectedVariants((prev) => {
-      const newSelections = new Map(prev);
-      const currentSet = new Set(newSelections.get(currentName.id) || []);
-
-      if (currentSet.has(variantId)) {
-        currentSet.delete(variantId);
-      } else {
-        currentSet.add(variantId);
-      }
-
-      newSelections.set(currentName.id, currentSet);
-      return newSelections;
+    // Add to liked variants to hide from display
+    setLikedVariantIds((prev) => {
+      const newMap = new Map(prev);
+      const currentSet = new Set(newMap.get(currentName.id) || []);
+      currentSet.add(variantId);
+      newMap.set(currentName.id, currentSet);
+      return newMap;
     });
+
+    // Fire mutation to like this variant
+    try {
+      const result = await api.createBatchSwipes([{ name_id: variantId, action: 'like' }]);
+      if (result.matches.length > 0) {
+        setMatchedName(result.matches[0]);
+      }
+    } catch (error) {
+      console.error('Error liking variant:', error);
+    }
   };
 
   const handleInfo = () => {
     if (!currentName) return;
     // Save state before navigating so user can return
-    saveSwipeState(names, currentIndex, selectedVariants);
+    saveSwipeState(names, currentIndex, new Map());
     router.push(`/name/${currentName.id}`);
   };
 
   const handleExploreMore = () => {
     if (!currentName) return;
     // Save state before navigating so user can return
-    saveSwipeState(names, currentIndex, selectedVariants);
+    saveSwipeState(names, currentIndex, new Map());
     router.push(`/name/${currentName.id}`);
   };
 
@@ -292,8 +269,8 @@ export default function SwipePage() {
             <SwipeCardWithSimilar
               key={currentName.id}
               name={currentName}
-              selectedVariants={selectedVariants.get(currentName.id) || new Set()}
-              onToggleVariant={handleToggleVariant}
+              likedVariantIds={likedVariantIds.get(currentName.id) || new Set()}
+              onLikeVariant={handleLikeVariant}
               onSwipe={handleSwipe}
               onExploreMore={handleExploreMore}
             />
@@ -308,7 +285,7 @@ export default function SwipePage() {
             <button
               onClick={() => {
                 setCurrentIndex(0);
-                setSelectedVariants(new Map());
+                setLikedVariantIds(new Map());
                 setSwipeHistory([]);
               }}
               className="bg-pink-500 text-white px-6 py-3 rounded-full hover:bg-pink-600 transition-colors"

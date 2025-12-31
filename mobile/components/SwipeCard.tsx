@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, memo } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Pressable } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedStyle,
@@ -25,11 +25,11 @@ interface SwipeCardProps {
   name: NameWithSimilar;
   onSwipe: (action: 'like' | 'dismiss') => void;
   isTop: boolean;
-  selectedVariants: Set<string>;
-  onToggleVariant: (variantId: string) => void;
+  onLikeVariant?: (variantId: string) => void;
+  likedVariantIds?: Set<string>;
 }
 
-function SwipeCardComponent({ name, onSwipe, isTop, selectedVariants, onToggleVariant }: SwipeCardProps) {
+function SwipeCardComponent({ name, onSwipe, isTop, onLikeVariant, likedVariantIds }: SwipeCardProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
@@ -42,8 +42,17 @@ function SwipeCardComponent({ name, onSwipe, isTop, selectedVariants, onToggleVa
     onSwipe(action);
   }, [onSwipe]);
 
-  const speakName = useCallback(() => {
-    Speech.speak(name.name, { rate: 0.8 });
+  const speakName = useCallback(async () => {
+    try {
+      // Stop any current speech first
+      await Speech.stop();
+      Speech.speak(name.name, {
+        rate: 0.8,
+        onError: (error) => console.warn('Speech error:', error),
+      });
+    } catch (error) {
+      console.warn('Failed to speak:', error);
+    }
   }, [name.name]);
 
   const panGesture = useMemo(
@@ -104,17 +113,18 @@ function SwipeCardComponent({ name, onSwipe, isTop, selectedVariants, onToggleVa
   const isMale = name.gender === 'M';
   const gradientColors = isMale ? ['#3b82f6', '#2563eb'] : ['#ec4899', '#db2777'];
 
-  // Memoize: Dedupe and take first 5 similar names for display
+  // Memoize: Dedupe, filter out liked, and take first 5 similar names for display
   const displayedVariants = useMemo(() => {
     const seenIds = new Set<string>();
     return name.similar
       .filter((v) => {
         if (seenIds.has(v.id)) return false;
+        if (likedVariantIds?.has(v.id)) return false; // Hide liked variants
         seenIds.add(v.id);
         return true;
       })
       .slice(0, 5);
-  }, [name.similar]);
+  }, [name.similar, likedVariantIds]);
 
   // Memoize: Dynamic font size based on name length
   const nameFontSize = useMemo(() => {
@@ -143,64 +153,61 @@ function SwipeCardComponent({ name, onSwipe, isTop, selectedVariants, onToggleVa
         </Animated.View>
 
         {/* Gradient Header with Name */}
-        <TouchableOpacity
-          style={[styles.headerGradient, { backgroundColor: gradientColors[0] }]}
-          onPress={() => router.push(`/name/${name.id}`)}
-          activeOpacity={0.9}
-        >
+        <View style={[styles.headerGradient, { backgroundColor: gradientColors[0] }]}>
           {/* Pronunciation Button */}
-          <TouchableOpacity
+          <Pressable
             style={styles.speakButton}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              speakName();
-            }}
+            onPress={speakName}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <FontAwesome name="volume-up" size={18} color="#ffffff" />
-          </TouchableOpacity>
+          </Pressable>
 
-          <Text style={[styles.nameText, { fontSize: nameFontSize }]}>
-            {name.name}
-          </Text>
-        </TouchableOpacity>
+          <Pressable onPress={() => router.push(`/name/${name.id}`)}>
+            <Text style={[styles.nameText, { fontSize: nameFontSize }]}>
+              {name.name}
+            </Text>
+          </Pressable>
+        </View>
 
         {/* Similar Names Grid */}
         <View style={styles.variantsSection}>
           {displayedVariants.length > 0 ? (
             <View style={styles.variantsGrid}>
               {displayedVariants.map((variant) => {
-                const isSelected = selectedVariants.has(variant.id);
                 return (
-                  <TouchableOpacity
+                  <View
                     key={variant.id}
                     style={[
                       styles.variantButton,
                       {
-                        backgroundColor: isSelected
-                          ? (isMale ? '#eff6ff' : '#fdf2f8')
-                          : (colorScheme === 'dark' ? colors.border : '#f9fafb'),
-                        borderColor: isSelected
-                          ? (isMale ? '#3b82f6' : '#ec4899')
-                          : 'transparent',
-                        borderWidth: isSelected ? 2 : 2,
+                        backgroundColor: colorScheme === 'dark' ? colors.border : '#f9fafb',
+                        borderColor: 'transparent',
+                        borderWidth: 2,
                       },
-                      !isSelected && { borderColor: 'transparent' }
                     ]}
-                    onPress={() => onToggleVariant(variant.id)}
                   >
-                    {isSelected ? (
-                      <View style={[styles.checkBadge, { backgroundColor: isMale ? '#3b82f6' : '#ec4899' }]}>
-                        <Text style={styles.checkText}>✓</Text>
-                      </View>
-                    ) : (
-                      <View style={[styles.plusBadge, { borderColor: colors.textSecondary }]}>
-                        <Text style={[styles.plusText, { color: colors.textSecondary }]}>+</Text>
-                      </View>
-                    )}
-                    <Text style={[styles.variantName, { color: isSelected ? (isMale ? '#1e40af' : '#9d174d') : colors.text }]} numberOfLines={2}>
+                    {/* Heart button to like variant */}
+                    <TouchableOpacity
+                      style={styles.variantHeartButton}
+                      onPress={() => onLikeVariant?.(variant.id)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <FontAwesome
+                        name="heart-o"
+                        size={14}
+                        color={isMale ? '#3b82f6' : '#ec4899'}
+                      />
+                    </TouchableOpacity>
+                    <Text
+                      style={[styles.variantName, { color: colors.text }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
                       {variant.name}
                     </Text>
-                  </TouchableOpacity>
+                  </View>
                 );
               })}
             </View>
@@ -305,43 +312,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+    flexDirection: 'column',
+    paddingTop: Spacing.xs,
   },
-  checkBadge: {
+  variantHeartButton: {
     position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  plusBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  plusText: {
-    fontSize: 10,
-    fontWeight: 'bold',
+    top: 4,
+    right: 4,
+    padding: 2,
   },
   variantName: {
     fontSize: FontSizes.sm,
     fontWeight: '500',
     textAlign: 'center',
-    paddingHorizontal: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
   },
   noVariants: {
     flex: 1,
@@ -367,8 +351,8 @@ export const SwipeCard = memo(SwipeCardComponent, (prev, next) => {
   return (
     prev.name.id === next.name.id &&
     prev.isTop === next.isTop &&
-    prev.selectedVariants === next.selectedVariants &&
+    prev.likedVariantIds === next.likedVariantIds &&
     prev.onSwipe === next.onSwipe &&
-    prev.onToggleVariant === next.onToggleVariant
+    prev.onLikeVariant === next.onLikeVariant
   );
 });

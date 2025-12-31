@@ -34,6 +34,40 @@ export default function OriginDetailScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
+  // Fetch existing swipes to show correct liked/dismissed status
+  const { data: existingSwipes } = useQuery({
+    queryKey: ['allSwipes'],
+    queryFn: async () => {
+      // Fetch both likes and dismisses
+      const [likes, dismisses] = await Promise.all([
+        api.getSwipes('like', 1000, 0),
+        api.getSwipes('dismiss', 1000, 0),
+      ]);
+      return { likes, dismisses };
+    },
+  });
+
+  // Initialize swipedNames from existing swipes
+  React.useEffect(() => {
+    if (existingSwipes) {
+      const newMap = new Map<string, 'like' | 'dismiss'>();
+      existingSwipes.likes.forEach(swipe => {
+        newMap.set(swipe.name_id, 'like');
+      });
+      existingSwipes.dismisses.forEach(swipe => {
+        newMap.set(swipe.name_id, 'dismiss');
+      });
+      setSwipedNames(prev => {
+        // Merge with any local swipes made during this session
+        const merged = new Map(newMap);
+        prev.forEach((value, key) => {
+          merged.set(key, value);
+        });
+        return merged;
+      });
+    }
+  }, [existingSwipes]);
+
   const { isLoading } = useQuery({
     queryKey: ['namesByOrigin', origin],
     queryFn: async () => {
@@ -65,6 +99,7 @@ export default function OriginDetailScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['swipes'] });
       queryClient.invalidateQueries({ queryKey: ['swipeNames'] });
+      queryClient.invalidateQueries({ queryKey: ['allSwipes'] });
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
     },
@@ -148,7 +183,7 @@ export default function OriginDetailScreen() {
               style={[styles.actionButton, { backgroundColor: colors.border }]}
               onPress={() => handleSwipe(item, 'like')}
             >
-              <FontAwesome name="heart" size={18} color={colors.primary} />
+              <FontAwesome name="heart-o" size={18} color={colors.primary} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: colors.border }]}

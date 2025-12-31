@@ -30,12 +30,13 @@ export default function SwipeScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const queryClient = useQueryClient();
-  const [selectedVariants, setSelectedVariants] = useState<Map<string, Set<string>>>(new Map());
   const [swipeHistory, setSwipeHistory] = useState<SwipeHistoryItem[]>([]);
   const [matchedName, setMatchedName] = useState<Name | null>(null);
   const [showHint, setShowHint] = useState(false);
   // Track locally swiped IDs to filter out before backend confirms
   const [locallySwipedIds, setLocallySwipedIds] = useState<Set<string>>(new Set());
+  // Track liked variant IDs per main card (to hide them from display)
+  const [likedVariantIds, setLikedVariantIds] = useState<Map<string, Set<string>>>(new Map());
   // Track pending mutations to know when it's safe to refetch
   const pendingMutationsRef = useRef(0);
   const refetchScheduledRef = useRef(false);
@@ -137,49 +138,46 @@ export default function SwipeScreen() {
     },
   });
 
-  const handleToggleVariant = useCallback((nameId: string, variantId: string) => {
-    setSelectedVariants((prev) => {
+  const handleLikeVariant = useCallback((nameId: string, variantId: string) => {
+    // Add to liked variants to hide from display
+    setLikedVariantIds((prev) => {
       const newMap = new Map(prev);
       const currentSet = newMap.get(nameId) || new Set<string>();
       const newSet = new Set(currentSet);
-
-      if (newSet.has(variantId)) {
-        newSet.delete(variantId);
-      } else {
-        newSet.add(variantId);
-      }
-
+      newSet.add(variantId);
       newMap.set(nameId, newSet);
       return newMap;
     });
-  }, []);
+
+    // Also mark as locally swiped
+    setLocallySwipedIds((prev) => {
+      const newSet = new Set(prev);
+      newSet.add(variantId);
+      return newSet;
+    });
+
+    // Fire mutation to like this variant
+    batchSwipeMutation.mutate([{ name_id: variantId, action: 'like' }]);
+  }, [batchSwipeMutation]);
 
   const handleSwipe = useCallback(
     (action: 'like' | 'dismiss') => {
       if (availableNames.length === 0) return;
 
       const currentName = availableNames[0];
-      const variants = selectedVariants.get(currentName.id) || new Set<string>();
 
-      // Build batch swipes array with deduplication
+      // Build batch swipes array - only main name (variants are liked separately via heart button)
       const swipedIds = new Set<string>();
       const swipes: Array<{ name_id: string; action: 'like' | 'dismiss' }> = [];
 
-      // Add main name first
+      // Add main name
       swipedIds.add(currentName.id);
       swipes.push({ name_id: currentName.id, action });
 
-      // Only include selected variants (same action as main name)
-      variants.forEach((variantId) => {
-        if (swipedIds.has(variantId)) return;
-        swipedIds.add(variantId);
-        swipes.push({ name_id: variantId, action });
-      });
-
-      // Save to history for undo (include all swiped IDs)
+      // Save to history for undo
       setSwipeHistory((prev) => [
         ...prev.slice(-10),
-        { name: currentName, selectedVariants: new Set(variants), swipedIds },
+        { name: currentName, selectedVariants: new Set(), swipedIds },
       ]);
 
       // Immediately mark as locally swiped (optimistic update)
@@ -189,8 +187,8 @@ export default function SwipeScreen() {
         return newSet;
       });
 
-      // Clear variants for this name
-      setSelectedVariants((prev) => {
+      // Clear liked variants for this name
+      setLikedVariantIds((prev) => {
         const newMap = new Map(prev);
         newMap.delete(currentName.id);
         return newMap;
@@ -205,7 +203,7 @@ export default function SwipeScreen() {
         safeRefetch();
       }
     },
-    [availableNames, selectedVariants, batchSwipeMutation, safeRefetch]
+    [availableNames, batchSwipeMutation, safeRefetch]
   );
 
   const handleUndo = useCallback(() => {
@@ -215,11 +213,6 @@ export default function SwipeScreen() {
 
     // Optimistic update - restore UI immediately
     setSwipeHistory((prev) => prev.slice(0, -1));
-    setSelectedVariants((prev) => {
-      const newMap = new Map(prev);
-      newMap.set(lastSwipe.name.id, lastSwipe.selectedVariants);
-      return newMap;
-    });
 
     // Remove from locally swiped IDs so the name reappears
     setLocallySwipedIds((prev) => {
@@ -261,7 +254,7 @@ export default function SwipeScreen() {
   // Show top 2 available names for the card stack
   const currentNames = availableNames.slice(0, 2);
   const currentName = currentNames[0];
-  const currentVariants = currentName ? (selectedVariants.get(currentName.id) || new Set<string>()) : new Set<string>();
+  const currentLikedVariants = currentName ? (likedVariantIds.get(currentName.id) || new Set<string>()) : new Set<string>();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -306,8 +299,8 @@ export default function SwipeScreen() {
                 name={name}
                 onSwipe={handleSwipe}
                 isTop={index === 0}
-                selectedVariants={index === 0 ? currentVariants : new Set<string>()}
-                onToggleVariant={(variantId) => handleToggleVariant(name.id, variantId)}
+                likedVariantIds={index === 0 ? currentLikedVariants : new Set<string>()}
+                onLikeVariant={(variantId) => handleLikeVariant(name.id, variantId)}
               />
             ))
             .reverse()
