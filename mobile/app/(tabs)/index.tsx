@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -23,17 +23,22 @@ const HINT_SHOWN_KEY = 'swipe_hint_shown';
 interface SwipeHistoryItem {
   name: NameWithSimilar;
   selectedVariants: Set<string>;
+  swipedIds: Set<string>; // All IDs swiped in this action (main + variants)
 }
 
 export default function SwipeScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const queryClient = useQueryClient();
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedVariants, setSelectedVariants] = useState<Map<string, Set<string>>>(new Map());
   const [swipeHistory, setSwipeHistory] = useState<SwipeHistoryItem[]>([]);
   const [matchedName, setMatchedName] = useState<Name | null>(null);
   const [showHint, setShowHint] = useState(false);
+  // Track locally swiped IDs to filter out before backend confirms
+  const [locallySwipedIds, setLocallySwipedIds] = useState<Set<string>>(new Set());
+  // Track pending mutations to know when it's safe to refetch
+  const pendingMutationsRef = useRef(0);
+  const refetchScheduledRef = useRef(false);
 
   // Check if hint should be shown
   useEffect(() => {
@@ -59,20 +64,76 @@ export default function SwipeScreen() {
     }
   };
 
-  const { data: names, isLoading, refetch } = useQuery({
+  const { data: names, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['swipeNames'],
-    queryFn: () => api.getNamesForSwiping(10),
+    queryFn: () => api.getNamesForSwiping(20), // Fetch more to have buffer
   });
+
+  // Filter out locally swiped names to prevent showing already-swiped cards
+  const availableNames = useMemo(() => {
+    if (!names) return [];
+    return names.filter(name => !locallySwipedIds.has(name.id));
+  }, [names, locallySwipedIds]);
+
+  // Perform refetch only when all mutations are done
+  const safeRefetch = useCallback(() => {
+    if (pendingMutationsRef.current > 0) {
+      // Schedule refetch for when mutations complete
+      refetchScheduledRef.current = true;
+    } else {
+      // Safe to refetch now - clear local tracking since backend is up to date
+      setLocallySwipedIds(new Set());
+      refetch();
+    }
+  }, [refetch]);
 
   const batchSwipeMutation = useMutation({
     mutationFn: (swipes: Array<{ name_id: string; action: 'like' | 'dismiss' }>) =>
       api.createBatchSwipes(swipes),
+    onMutate: () => {
+      pendingMutationsRef.current += 1;
+    },
     onSuccess: (result) => {
       if (result.matches && result.matches.length > 0) {
         setMatchedName(result.matches[0]);
       }
-      queryClient.invalidateQueries({ queryKey: ['swipes'] });
-      queryClient.invalidateQueries({ queryKey: ['matches'] });
+    },
+    onError: (error, variables) => {
+      // Restore cards on error - remove failed IDs from locally swiped
+      console.error('Swipe failed:', error);
+      const failedIds = new Set(variables.map(s => s.name_id));
+      setLocallySwipedIds((prev) => {
+        const newSet = new Set(prev);
+        failedIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+      // Also remove from history since the swipe didn't succeed
+      setSwipeHistory((prev) => {
+        const lastSwipe = prev[prev.length - 1];
+        if (lastSwipe && failedIds.has(lastSwipe.name.id)) {
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
+    },
+    onSettled: () => {
+      pendingMutationsRef.current -= 1;
+      // If all mutations done and refetch was scheduled, do it now
+      if (pendingMutationsRef.current === 0 && refetchScheduledRef.current) {
+        refetchScheduledRef.current = false;
+        setLocallySwipedIds(new Set());
+        refetch().then(() => {
+          // Invalidate caches after refetch completes
+          queryClient.invalidateQueries({ queryKey: ['swipes'] });
+          queryClient.invalidateQueries({ queryKey: ['matches'] });
+          queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
+        });
+      } else if (pendingMutationsRef.current === 0) {
+        // No scheduled refetch, just invalidate caches
+        queryClient.invalidateQueries({ queryKey: ['swipes'] });
+        queryClient.invalidateQueries({ queryKey: ['matches'] });
+        queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
+      }
     },
   });
 
@@ -95,38 +156,38 @@ export default function SwipeScreen() {
 
   const handleSwipe = useCallback(
     (action: 'like' | 'dismiss') => {
-      if (!names || currentIndex >= names.length) return;
+      if (availableNames.length === 0) return;
 
-      const currentName = names[currentIndex];
+      const currentName = availableNames[0];
       const variants = selectedVariants.get(currentName.id) || new Set<string>();
 
-      // Save to history for undo
-      setSwipeHistory((prev) => [
-        ...prev.slice(-10), // Keep last 10 for undo
-        { name: currentName, selectedVariants: new Set(variants) },
-      ]);
-
       // Build batch swipes array with deduplication
-      const seenIds = new Set<string>();
+      const swipedIds = new Set<string>();
       const swipes: Array<{ name_id: string; action: 'like' | 'dismiss' }> = [];
 
       // Add main name first
-      seenIds.add(currentName.id);
+      swipedIds.add(currentName.id);
       swipes.push({ name_id: currentName.id, action });
 
       // Only include selected variants (same action as main name)
       variants.forEach((variantId) => {
-        // Skip if we've already added this name_id (handles duplicate similar names)
-        if (seenIds.has(variantId)) return;
-        seenIds.add(variantId);
-
-        swipes.push({
-          name_id: variantId,
-          action,
-        });
+        if (swipedIds.has(variantId)) return;
+        swipedIds.add(variantId);
+        swipes.push({ name_id: variantId, action });
       });
 
-      batchSwipeMutation.mutate(swipes);
+      // Save to history for undo (include all swiped IDs)
+      setSwipeHistory((prev) => [
+        ...prev.slice(-10),
+        { name: currentName, selectedVariants: new Set(variants), swipedIds },
+      ]);
+
+      // Immediately mark as locally swiped (optimistic update)
+      setLocallySwipedIds((prev) => {
+        const newSet = new Set(prev);
+        swipedIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
 
       // Clear variants for this name
       setSelectedVariants((prev) => {
@@ -135,46 +196,50 @@ export default function SwipeScreen() {
         return newMap;
       });
 
-      setCurrentIndex((prev) => prev + 1);
+      // Fire mutation (non-blocking)
+      batchSwipeMutation.mutate(swipes);
 
-      // Refetch when running low
-      if (currentIndex >= names.length - 3) {
-        refetch();
-        setCurrentIndex(0);
+      // Check if we need more names (using filtered list length)
+      // availableNames will shrink as we swipe, trigger refetch when low
+      if (availableNames.length <= 4) {
+        safeRefetch();
       }
     },
-    [names, currentIndex, selectedVariants, batchSwipeMutation, refetch]
+    [availableNames, selectedVariants, batchSwipeMutation, safeRefetch]
   );
 
-  const handleUndo = useCallback(async () => {
-    if (swipeHistory.length === 0 || currentIndex === 0) return;
+  const handleUndo = useCallback(() => {
+    if (swipeHistory.length === 0) return;
 
     const lastSwipe = swipeHistory[swipeHistory.length - 1];
 
-    try {
-      // Delete the swipe from backend - await to ensure consistency
-      await api.deleteSwipe(lastSwipe.name.id);
+    // Optimistic update - restore UI immediately
+    setSwipeHistory((prev) => prev.slice(0, -1));
+    setSelectedVariants((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(lastSwipe.name.id, lastSwipe.selectedVariants);
+      return newMap;
+    });
 
-      // Only delete selected variant swipes (not all variants)
-      await Promise.all(
-        Array.from(lastSwipe.selectedVariants).map((variantId) => api.deleteSwipe(variantId))
-      );
+    // Remove from locally swiped IDs so the name reappears
+    setLocallySwipedIds((prev) => {
+      const newSet = new Set(prev);
+      lastSwipe.swipedIds.forEach(id => newSet.delete(id));
+      return newSet;
+    });
 
-      // Restore state only after successful deletion
-      setSwipeHistory((prev) => prev.slice(0, -1));
-      setSelectedVariants((prev) => {
-        const newMap = new Map(prev);
-        newMap.set(lastSwipe.name.id, lastSwipe.selectedVariants);
-        return newMap;
-      });
-      setCurrentIndex((prev) => prev - 1);
+    // Fire delete calls in background (non-blocking)
+    const deletePromises = Array.from(lastSwipe.swipedIds).map((id) =>
+      api.deleteSwipe(id).catch((err) => console.error('Failed to delete swipe:', id, err))
+    );
 
+    // Invalidate caches after all deletes complete
+    Promise.all(deletePromises).then(() => {
       queryClient.invalidateQueries({ queryKey: ['swipes'] });
       queryClient.invalidateQueries({ queryKey: ['matches'] });
-    } catch (error) {
-      console.error('Failed to undo swipe:', error);
-    }
-  }, [swipeHistory, currentIndex, queryClient]);
+      queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
+    });
+  }, [swipeHistory, queryClient]);
 
   const handleButtonSwipe = (action: 'like' | 'dismiss') => {
     handleSwipe(action);
@@ -193,7 +258,8 @@ export default function SwipeScreen() {
     );
   }
 
-  const currentNames = names?.slice(currentIndex, currentIndex + 2) || [];
+  // Show top 2 available names for the card stack
+  const currentNames = availableNames.slice(0, 2);
   const currentName = currentNames[0];
   const currentVariants = currentName ? (selectedVariants.get(currentName.id) || new Set<string>()) : new Set<string>();
 
@@ -205,24 +271,33 @@ export default function SwipeScreen() {
 
       <View style={styles.cardContainer}>
         {currentNames.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>🎉</Text>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              You've seen all names!
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              Check back later for more or adjust your preferences
-            </Text>
-            <TouchableOpacity
-              style={[styles.refreshButton, { backgroundColor: colors.primary }]}
-              onPress={() => {
-                setCurrentIndex(0);
-                refetch();
-              }}
-            >
-              <Text style={styles.refreshButtonText}>Refresh</Text>
-            </TouchableOpacity>
-          </View>
+          isFetching ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                Loading more names...
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>🎉</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                You've seen all names!
+              </Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                Check back later for more or adjust your preferences
+              </Text>
+              <TouchableOpacity
+                style={[styles.refreshButton, { backgroundColor: colors.primary }]}
+                onPress={() => {
+                  setLocallySwipedIds(new Set());
+                  refetch();
+                }}
+              >
+                <Text style={styles.refreshButtonText}>Refresh</Text>
+              </TouchableOpacity>
+            </View>
+          )
         ) : (
           currentNames
             .map((name, index) => (
@@ -271,10 +346,10 @@ export default function SwipeScreen() {
           <TouchableOpacity
             style={[
               styles.undoButton,
-              { opacity: swipeHistory.length > 0 && currentIndex > 0 ? 1 : 0.3 },
+              { opacity: swipeHistory.length > 0 ? 1 : 0.3 },
             ]}
             onPress={handleUndo}
-            disabled={swipeHistory.length === 0 || currentIndex === 0}
+            disabled={swipeHistory.length === 0}
           >
             <FontAwesome name="undo" size={20} color={colors.textSecondary} />
           </TouchableOpacity>

@@ -4,6 +4,7 @@ import {
   GoogleSignin,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { User } from '../types';
 
@@ -28,6 +29,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   // Check if user is already logged in
   useEffect(() => {
@@ -121,11 +123,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Ignore Google sign out errors
       }
       await api.logout();
+      // Clear all cached data to prevent data leakage between users
+      queryClient.clear();
       setUser(null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [queryClient]);
 
   const refreshUser = useCallback(async () => {
     try {

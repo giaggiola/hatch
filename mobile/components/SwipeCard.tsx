@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback, memo } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -29,7 +29,7 @@ interface SwipeCardProps {
   onToggleVariant: (variantId: string) => void;
 }
 
-export function SwipeCard({ name, onSwipe, isTop, selectedVariants, onToggleVariant }: SwipeCardProps) {
+function SwipeCardComponent({ name, onSwipe, isTop, selectedVariants, onToggleVariant }: SwipeCardProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
@@ -37,13 +37,14 @@ export function SwipeCard({ name, onSwipe, isTop, selectedVariants, onToggleVari
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
-  const handleSwipe = (action: 'like' | 'dismiss') => {
+  // Memoize callbacks to prevent gesture recreation
+  const handleSwipe = useCallback((action: 'like' | 'dismiss') => {
     onSwipe(action);
-  };
+  }, [onSwipe]);
 
-  const speakName = () => {
+  const speakName = useCallback(() => {
     Speech.speak(name.name, { rate: 0.8 });
-  };
+  }, [name.name]);
 
   const panGesture = useMemo(
     () =>
@@ -72,7 +73,7 @@ export function SwipeCard({ name, onSwipe, isTop, selectedVariants, onToggleVari
             translateY.value = withSpring(0);
           }
         }),
-    [isTop, handleSwipe]
+    [isTop, handleSwipe, translateX, translateY]
   );
 
   const cardStyle = useAnimatedStyle(() => {
@@ -103,22 +104,24 @@ export function SwipeCard({ name, onSwipe, isTop, selectedVariants, onToggleVari
   const isMale = name.gender === 'M';
   const gradientColors = isMale ? ['#3b82f6', '#2563eb'] : ['#ec4899', '#db2777'];
 
-  // Dedupe and take first 5 similar names for display
-  const seenIds = new Set<string>();
-  const displayedVariants = name.similar
-    .filter((v) => {
-      if (seenIds.has(v.id)) return false;
-      seenIds.add(v.id);
-      return true;
-    })
-    .slice(0, 5);
+  // Memoize: Dedupe and take first 5 similar names for display
+  const displayedVariants = useMemo(() => {
+    const seenIds = new Set<string>();
+    return name.similar
+      .filter((v) => {
+        if (seenIds.has(v.id)) return false;
+        seenIds.add(v.id);
+        return true;
+      })
+      .slice(0, 5);
+  }, [name.similar]);
 
-  // Dynamic font size based on name length
-  const getNameFontSize = () => {
+  // Memoize: Dynamic font size based on name length
+  const nameFontSize = useMemo(() => {
     if (name.name.length > 12) return FontSizes.xxxl;
     if (name.name.length > 9) return FontSizes.display - 8;
     return FontSizes.display;
-  };
+  }, [name.name.length]);
 
   return (
     <GestureDetector gesture={panGesture}>
@@ -156,7 +159,7 @@ export function SwipeCard({ name, onSwipe, isTop, selectedVariants, onToggleVari
             <FontAwesome name="volume-up" size={18} color="#ffffff" />
           </TouchableOpacity>
 
-          <Text style={[styles.nameText, { fontSize: getNameFontSize() }]}>
+          <Text style={[styles.nameText, { fontSize: nameFontSize }]}>
             {name.name}
           </Text>
         </TouchableOpacity>
@@ -356,4 +359,16 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     textDecorationLine: 'underline',
   },
+});
+
+// Memoize to prevent unnecessary re-renders when parent state changes
+export const SwipeCard = memo(SwipeCardComponent, (prev, next) => {
+  // Custom comparison - only re-render if these specific props change
+  return (
+    prev.name.id === next.name.id &&
+    prev.isTop === next.isTop &&
+    prev.selectedVariants === next.selectedVariants &&
+    prev.onSwipe === next.onSwipe &&
+    prev.onToggleVariant === next.onToggleVariant
+  );
 });

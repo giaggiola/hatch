@@ -64,7 +64,9 @@ export function LikeButton({
       queryClient.setQueryData(['swipeStatus', nameId], { action });
       setOptimisticState(null);
       queryClient.invalidateQueries({ queryKey: ['swipes'] });
+      queryClient.invalidateQueries({ queryKey: ['swipeNames'] });
       queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
     },
     onError: () => {
       setOptimisticState(null);

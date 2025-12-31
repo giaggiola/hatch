@@ -64,6 +64,9 @@ export default function OriginDetailScreen() {
       api.createSwipe(nameId, action),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['swipes'] });
+      queryClient.invalidateQueries({ queryKey: ['swipeNames'] });
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
     },
   });
 

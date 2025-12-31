@@ -98,6 +98,7 @@ async def get_close_calls(
     these are similar names and count as a close call.
 
     Uses pre-computed similarities from name_similarities table.
+    Searches bidirectionally to find all close calls regardless of direction.
     """
     # Find pairs where:
     # - User A liked name X
@@ -105,6 +106,7 @@ async def get_close_calls(
     # - X and Y are similar (via name_similarities table)
     # - X and Y are different names
     # - Neither X nor Y is an exact match (both partners liked same name)
+    # Search both directions: your_name→partner_name AND partner_name→your_name
     query = text("""
         WITH user_likes AS (
             SELECT name_id FROM swipes
@@ -123,32 +125,66 @@ async def get_close_calls(
             SELECT ul.name_id
             FROM user_likes ul
             INNER JOIN partner_likes pl ON ul.name_id = pl.name_id
+        ),
+        -- Direction 1: Your likes similar to partner's likes
+        direction1 AS (
+            SELECT
+                ns.similarity,
+                n1.id as your_name_id,
+                n1.name as your_name,
+                n1.gender as your_gender,
+                n2.id as partner_name_id,
+                n2.name as partner_name,
+                n2.gender as partner_gender
+            FROM name_similarities ns
+            INNER JOIN user_likes ul ON ns.name_id = ul.name_id
+            INNER JOIN partner_likes pl ON ns.similar_name_id = pl.name_id
+            INNER JOIN names n1 ON ns.name_id = n1.id
+            INNER JOIN names n2 ON ns.similar_name_id = n2.id
+            WHERE ns.similarity >= :min_similarity
+              AND ns.name_id != ns.similar_name_id
+              AND ns.name_id NOT IN (SELECT name_id FROM exact_matches)
+              AND ns.similar_name_id NOT IN (SELECT name_id FROM exact_matches)
+        ),
+        -- Direction 2: Partner's likes similar to your likes (reverse lookup)
+        direction2 AS (
+            SELECT
+                ns.similarity,
+                n1.id as your_name_id,
+                n1.name as your_name,
+                n1.gender as your_gender,
+                n2.id as partner_name_id,
+                n2.name as partner_name,
+                n2.gender as partner_gender
+            FROM name_similarities ns
+            INNER JOIN partner_likes pl ON ns.name_id = pl.name_id
+            INNER JOIN user_likes ul ON ns.similar_name_id = ul.name_id
+            INNER JOIN names n1 ON ns.similar_name_id = n1.id
+            INNER JOIN names n2 ON ns.name_id = n2.id
+            WHERE ns.similarity >= :min_similarity
+              AND ns.name_id != ns.similar_name_id
+              AND ns.name_id NOT IN (SELECT name_id FROM exact_matches)
+              AND ns.similar_name_id NOT IN (SELECT name_id FROM exact_matches)
+        ),
+        -- Combine both directions and dedupe by partner name
+        combined AS (
+            SELECT * FROM direction1
+            UNION
+            SELECT * FROM direction2
         )
         SELECT
-            ns.similarity,
-            -- Your liked name
-            n1.id as your_name_id,
-            n1.name as your_name,
-            n1.gender as your_gender,
-            -- Partner's liked name
-            n2.id as partner_name_id,
-            n2.name as partner_name,
-            n2.gender as partner_gender,
-            -- Countries for partner's name (the one you might want to reconsider)
+            c.similarity,
+            c.your_name_id,
+            c.your_name,
+            c.your_gender,
+            c.partner_name_id,
+            c.partner_name,
+            c.partner_gender,
             GROUP_CONCAT(DISTINCT np.country_code) as partner_countries
-        FROM name_similarities ns
-        INNER JOIN user_likes ul ON ns.name_id = ul.name_id
-        INNER JOIN partner_likes pl ON ns.similar_name_id = pl.name_id
-        INNER JOIN names n1 ON ns.name_id = n1.id
-        INNER JOIN names n2 ON ns.similar_name_id = n2.id
-        LEFT JOIN name_popularity np ON n2.id = np.name_id
-        WHERE ns.similarity >= :min_similarity
-          AND ns.name_id != ns.similar_name_id
-          -- Exclude names that are already exact matches
-          AND ns.name_id NOT IN (SELECT name_id FROM exact_matches)
-          AND ns.similar_name_id NOT IN (SELECT name_id FROM exact_matches)
-        GROUP BY ns.name_id, ns.similar_name_id
-        ORDER BY ns.similarity DESC
+        FROM combined c
+        LEFT JOIN name_popularity np ON c.partner_name_id = np.name_id
+        GROUP BY c.partner_name_id
+        ORDER BY c.similarity DESC
         LIMIT :limit
     """)
 

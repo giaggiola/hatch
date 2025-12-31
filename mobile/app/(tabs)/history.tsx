@@ -34,7 +34,7 @@ export default function HistoryScreen() {
     queryFn: () => api.getSwipeCounts(),
   });
 
-  // Infinite query for likes
+  // Infinite query for likes - only fetch when likes tab is active
   const {
     data: likesData,
     fetchNextPage: fetchNextLikes,
@@ -49,9 +49,10 @@ export default function HistoryScreen() {
       return allPages.length * PAGE_SIZE;
     },
     initialPageParam: 0,
+    enabled: activeTab === 'likes',
   });
 
-  // Infinite query for dismisses
+  // Infinite query for dismisses - only fetch when dismisses tab is active
   const {
     data: dismissesData,
     fetchNextPage: fetchNextDismisses,
@@ -66,9 +67,10 @@ export default function HistoryScreen() {
       return allPages.length * PAGE_SIZE;
     },
     initialPageParam: 0,
+    enabled: activeTab === 'dismisses',
   });
 
-  // Infinite query for matches
+  // Infinite query for matches - only fetch when matches tab is active
   const {
     data: matchesData,
     fetchNextPage: fetchNextMatches,
@@ -83,6 +85,7 @@ export default function HistoryScreen() {
       return allPages.length * PAGE_SIZE;
     },
     initialPageParam: 0,
+    enabled: activeTab === 'matches',
   });
 
   const { data: closeCalls } = useQuery({
@@ -98,6 +101,7 @@ export default function HistoryScreen() {
       queryClient.invalidateQueries({ queryKey: ['swipes'] });
       queryClient.invalidateQueries({ queryKey: ['swipeCounts'] });
       queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
     },
   });
 

@@ -23,6 +23,23 @@ const API_URL = `${process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000'}/a
 
 const TOKEN_KEY = 'auth_token';
 
+// Timeout and retry configuration
+const DEFAULT_TIMEOUT_MS = 10000; // 10 seconds
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 500;
+
+// Helper to create a timeout promise
+function timeout(ms: number): Promise<never> {
+  return new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Request timeout')), ms)
+  );
+}
+
+// Helper to delay execution
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -44,7 +61,8 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    timeoutMs: number = DEFAULT_TIMEOUT_MS
   ): Promise<T> {
     const token = await this.getToken();
 
@@ -57,22 +75,61 @@ class ApiClient {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    let lastError: Error = new Error('Request failed');
 
-    if (response.status === 401) {
-      await this.clearToken();
-      throw new Error('Unauthorized');
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await Promise.race([
+          fetch(`${this.baseUrl}${endpoint}`, {
+            ...options,
+            headers,
+          }),
+          timeout(timeoutMs),
+        ]);
+
+        if (response.status === 401) {
+          await this.clearToken();
+          throw new Error('Unauthorized');
+        }
+
+        // Don't retry 4xx client errors (except 408 Request Timeout, 429 Too Many Requests)
+        if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.detail || 'Request failed');
+        }
+
+        // Retry on 5xx server errors or 408/429
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          lastError = new Error(error.detail || `Server error: ${response.status}`);
+          if (attempt < MAX_RETRIES) {
+            await delay(RETRY_DELAY_MS * Math.pow(2, attempt)); // Exponential backoff
+            continue;
+          }
+          throw lastError;
+        }
+
+        return response.json();
+      } catch (error: any) {
+        lastError = error;
+
+        // Don't retry auth errors or client errors
+        if (error.message === 'Unauthorized' || error.message?.includes('Request failed')) {
+          throw error;
+        }
+
+        // Retry on timeout or network errors
+        if (attempt < MAX_RETRIES) {
+          if (__DEV__) {
+            console.log(`API retry ${attempt + 1}/${MAX_RETRIES} for ${endpoint}: ${error.message}`);
+          }
+          await delay(RETRY_DELAY_MS * Math.pow(2, attempt));
+          continue;
+        }
+      }
     }
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || 'Request failed');
-    }
-
-    return response.json();
+    throw lastError;
   }
 
   // Auth

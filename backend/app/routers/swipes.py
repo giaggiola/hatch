@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.routers.auth import get_current_user
 from app.schemas.swipe import (
@@ -14,6 +15,9 @@ from app.models.user import User
 from app.services.matching import check_for_match
 from app.rate_limiter import limiter, RATE_LIMIT_SWIPE
 from typing import Literal
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/swipes", tags=["swipes"])
 
@@ -143,6 +147,7 @@ async def create_batch_swipes(
     # Create swipes for names not already swiped
     created_count = 0
     matches = []
+    swipes_to_check = []  # Track which swipes need match checking
 
     for swipe_data in deduped_swipes:
         if swipe_data.name_id in already_swiped:
@@ -160,25 +165,19 @@ async def create_batch_swipes(
         db.add(swipe)
         created_count += 1
 
-        # Check for match if this was a like AND user is in a couple
+        # Track likes for match checking after flush
         if swipe_data.action == "like" and current_user.couple_id:
-            is_match = await check_for_match(
-                db=db,
-                couple_id=current_user.couple_id,
-                name_id=swipe_data.name_id,
-                current_user_id=current_user.id,
-            )
-            if is_match:
-                matches.append(NameResponse.model_validate(names[swipe_data.name_id]))
+            swipes_to_check.append(swipe_data.name_id)
 
-    # Use try/except to handle race conditions when swiping fast
+    # Flush to make swipes visible for match checking
     try:
-        await db.commit()
-    except Exception:
+        await db.flush()
+    except IntegrityError:
         # If we hit a unique constraint, rollback and try one-by-one
         await db.rollback()
+        logger.warning("Batch swipe hit constraint, falling back to one-by-one")
         created_count = 0
-        matches = []
+        swipes_to_check = []
 
         for swipe_data in deduped_swipes:
             # Check if already exists
@@ -203,19 +202,23 @@ async def create_batch_swipes(
                 created_count += 1
 
                 if swipe_data.action == "like" and current_user.couple_id:
-                    is_match = await check_for_match(
-                        db=db,
-                        couple_id=current_user.couple_id,
-                        name_id=swipe_data.name_id,
-                        current_user_id=current_user.id,
-                    )
-                    if is_match:
-                        matches.append(NameResponse.model_validate(names[swipe_data.name_id]))
-            except Exception:
+                    swipes_to_check.append(swipe_data.name_id)
+            except IntegrityError:
                 await db.rollback()
                 continue
 
-        await db.commit()
+    # Now check for matches - swipes are flushed and visible
+    for name_id in swipes_to_check:
+        is_match = await check_for_match(
+            db=db,
+            couple_id=current_user.couple_id,
+            name_id=name_id,
+            current_user_id=current_user.id,
+        )
+        if is_match:
+            matches.append(NameResponse.model_validate(names[name_id]))
+
+    await db.commit()
 
     return BatchSwipeResultResponse(
         created=created_count,
