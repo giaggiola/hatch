@@ -17,7 +17,6 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.giaggi92.hatch",
       "associatedDomains": [
-        "applinks:hatch.name-me.app",
         "applinks:hatch.name-me.app"
       ],
       "infoPlist": {
