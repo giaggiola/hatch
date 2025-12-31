@@ -8,6 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Redirect } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,7 +16,12 @@ import { Colors, Spacing, FontSizes, BorderRadius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 
 export default function LoginScreen() {
-  const { signIn, isLoading, devSignIn } = useAuth();
+  const { signIn, isLoading, devSignIn, isAuthenticated } = useAuth();
+
+  // Redirect to main app if already authenticated
+  if (isAuthenticated) {
+    return <Redirect href="/(tabs)" />;
+  }
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
