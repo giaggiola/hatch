@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Alert,
+  Image,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Redirect } from 'expo-router';
@@ -31,7 +32,11 @@ export default function LoginScreen() {
 
       <View style={styles.content}>
         <View style={styles.logoContainer}>
-          <Text style={[styles.logo, { color: colors.primary }]}>🐣</Text>
+          <Image
+            source={require('@/assets/images/hatch-icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={[styles.title, { color: colors.text }]}>Hatch</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Swipe on baby names with your partner
@@ -86,7 +91,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xxl,
   },
   logo: {
-    fontSize: 80,
+    width: 120,
+    height: 120,
     marginBottom: Spacing.md,
   },
   title: {

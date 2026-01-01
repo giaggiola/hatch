@@ -80,12 +80,10 @@ export default function SwipeScreen() {
       // Schedule refetch for when mutations complete
       refetchScheduledRef.current = true;
     } else {
-      // Safe to refetch now - but DON'T clear locallySwipedIds until refetch completes
-      // This prevents the flash where old names briefly reappear
-      refetch().then(() => {
-        // Only clear after new data has arrived
-        setLocallySwipedIds(new Set());
-      });
+      // Safe to refetch now
+      // DON'T clear locallySwipedIds - the backend returns only unswiped names,
+      // so keeping the filter prevents any race condition where old data briefly appears
+      refetch();
     }
   }, [refetch]);
 
@@ -123,17 +121,12 @@ export default function SwipeScreen() {
       // If all mutations done and refetch was scheduled, do it now
       if (pendingMutationsRef.current === 0 && refetchScheduledRef.current) {
         refetchScheduledRef.current = false;
-        // DON'T clear locallySwipedIds until refetch completes to prevent flash
-        refetch().then(() => {
-          // Only clear after new data has arrived
-          setLocallySwipedIds(new Set());
-          // Invalidate caches after refetch completes
-          queryClient.invalidateQueries({ queryKey: ['swipes'] });
-          queryClient.invalidateQueries({ queryKey: ['matches'] });
-          queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
-        });
-      } else if (pendingMutationsRef.current === 0) {
-        // No scheduled refetch, just invalidate caches
+        // DON'T clear locallySwipedIds - backend returns only unswiped names,
+        // keeping the filter prevents race condition where old data briefly appears
+        refetch();
+      }
+      // Invalidate other caches when all mutations are done
+      if (pendingMutationsRef.current === 0) {
         queryClient.invalidateQueries({ queryKey: ['swipes'] });
         queryClient.invalidateQueries({ queryKey: ['matches'] });
         queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
@@ -255,10 +248,10 @@ export default function SwipeScreen() {
               <TouchableOpacity
                 style={[styles.refreshButton, { backgroundColor: colors.primary }]}
                 onPress={() => {
-                  // Clear AFTER refetch completes to prevent flash
-                  refetch().then(() => {
-                    setLocallySwipedIds(new Set());
-                  });
+                  // For manual refresh: clear local state AND reset query to show loading
+                  // This is safe because user explicitly wants fresh data
+                  setLocallySwipedIds(new Set());
+                  queryClient.resetQueries({ queryKey: ['swipeNames'] });
                 }}
               >
                 <Text style={styles.refreshButtonText}>Refresh</Text>
