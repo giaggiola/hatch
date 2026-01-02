@@ -43,7 +43,7 @@ export default function OriginDetailScreen() {
   );
 
   // Fetch existing swipes to show correct liked/dismissed status
-  const { data: existingSwipes, isLoading: swipesLoading } = useQuery({
+  const { data: existingSwipes, isLoading: swipesLoading, isFetching: swipesFetching } = useQuery({
     queryKey: ['allSwipes'],
     queryFn: async () => {
       // Fetch both likes and dismisses
@@ -54,6 +54,7 @@ export default function OriginDetailScreen() {
       return { likes, dismisses };
     },
     staleTime: 0, // Always consider data stale to ensure fresh data
+    refetchOnMount: 'always', // Always refetch when screen mounts
   });
 
   // Initialize swipedNames from existing swipes

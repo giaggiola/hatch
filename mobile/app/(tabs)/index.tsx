@@ -65,13 +65,18 @@ export default function SwipeScreen() {
 
   const { data: names, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['swipeNames'],
-    queryFn: () => api.getNamesForSwiping(20), // Fetch more to have buffer
+    queryFn: () => api.getNamesForSwiping(30), // Fetch more to have buffer
   });
 
   // Filter out locally swiped names to prevent showing already-swiped cards
   const availableNames = useMemo(() => {
     if (!names) return [];
-    return names.filter(name => !locallySwipedIds.has(name.id));
+    const filtered = names.filter(name => !locallySwipedIds.has(name.id));
+    // Debug: log counts to help diagnose "one at a time" issue
+    if (__DEV__) {
+      console.log(`[Swipe] Names from server: ${names.length}, After filter: ${filtered.length}, LocallySwipedIds: ${locallySwipedIds.size}`);
+    }
+    return filtered;
   }, [names, locallySwipedIds]);
 
   // Perform refetch only when all mutations are done
@@ -128,6 +133,7 @@ export default function SwipeScreen() {
       // Invalidate other caches when all mutations are done
       if (pendingMutationsRef.current === 0) {
         queryClient.invalidateQueries({ queryKey: ['swipes'] });
+        queryClient.invalidateQueries({ queryKey: ['allSwipes'] }); // For Explore → Country screen
         queryClient.invalidateQueries({ queryKey: ['matches'] });
         queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
       }
@@ -165,8 +171,9 @@ export default function SwipeScreen() {
       batchSwipeMutation.mutate(swipes);
 
       // Check if we need more names (using filtered list length)
-      // availableNames will shrink as we swipe, trigger refetch when low
-      if (availableNames.length <= 4) {
+      // availableNames will shrink as we swipe, trigger refetch when buffer is low
+      // Use higher threshold to ensure we fetch well before running out
+      if (availableNames.length <= 8) {
         safeRefetch();
       }
     },
@@ -196,6 +203,7 @@ export default function SwipeScreen() {
     // Invalidate caches after all deletes complete
     Promise.all(deletePromises).then(() => {
       queryClient.invalidateQueries({ queryKey: ['swipes'] });
+      queryClient.invalidateQueries({ queryKey: ['allSwipes'] }); // For Explore → Country screen
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['closeCalls'] });
     });
